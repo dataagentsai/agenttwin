@@ -139,7 +139,7 @@ def _register(srv: MCPServer, live: Live, action_name: str, action: Action, wrap
     handler.__name__ = action_name
     handler.__doc__ = action.description or action_name
 
-    typed = _typed(handler, action_name, entity, key_field, action)
+    typed = _typed(handler, key_field)
     srv.tool(
         name=action_name,
         description=action.description or action_name,
@@ -186,7 +186,7 @@ def _session(ctx: Context | None) -> dict[str, object] | None:
     return session if isinstance(session, dict) else None
 
 
-def _typed(handler, action_name: str, entity, key_field: str, action: Action):
+def _typed(handler, key_field: str):
     """Give the handler a signature and annotations MCP can build a schema from.
 
     The SDK derives `inputSchema` from the function signature and `outputSchema`
@@ -198,24 +198,16 @@ def _typed(handler, action_name: str, entity, key_field: str, action: Action):
     """
     import inspect
 
-    extra = {}
-    if action_name == "issue_refund":
-        extra["amount"] = str
-
+    # The key is the only input a projected tool takes. The spec's other inputs
+    # are the agent's to supply and its `amount_from`-style fields the system's
+    # to read from its own row — which is why a refund takes no amount (E3, F-014).
     params = [
         inspect.Parameter(key_field, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=str),
-        *(
-            inspect.Parameter(n, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=t)
-            for n, t in extra.items()
-        ),
+        inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context, default=None),
     ]
-    params.append(
-        inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context, default=None)
-    )
     handler.__signature__ = inspect.Signature(params, return_annotation=dict[str, Any])
     handler.__annotations__ = {
         key_field: str,
-        **extra,
         "ctx": Context,
         "return": dict[str, Any],
     }
