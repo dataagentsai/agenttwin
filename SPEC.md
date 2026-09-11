@@ -49,7 +49,7 @@ The loader reads the world, reads the spec it cites, and composes one world:
 
 ## What a world cannot enforce
 
-A stand-in can only check what it can see. Three kinds of statement in a spec
+A stand-in can only check what it can see. Two kinds of statement in a spec
 are beyond any world, and each is **reported, never dropped**:
 
 | Statement | Why no world can enforce it |
