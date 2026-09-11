@@ -51,7 +51,8 @@ tractable ones.
 
 | Module | Holds |
 |---|---|
-| `world.py`, `loader.py` | the world description and its validation |
+| `world.py`, `loader.py` | the composed world, and loading one from a world file plus the spec it cites |
+| `spec.py` | reading an agent spec, resolving `extends` by RFC 7386 merge patch |
 | `projection.py` | projecting world state as the systems a run sees |
 | `actor.py` | scripted and state-machine actors, including the customer |
 | `approver.py`, `desk.py` | the human surface — approval and escalation |
@@ -69,14 +70,20 @@ if the agent package imports this one.
 
 > *A system that can see its own simulator is a system whose results mean nothing.*
 
+## The format
+
+**[SPEC.md](SPEC.md)** — a world cites the agent's specification and never
+declares the domain. Schema in [schema/](schema/), loader tests in [tests/](tests/).
+
 ## Status and what is not here yet
 
-**Tests and example worlds still live in the reference implementation**, where
-they were written. Most of them are integration tests that drive a real agent
-against a world and belong there permanently. The exception is world loading and
-validation, which is pure and will move — together with the question of whether
-the two example worlds are *fixtures of that agent* or *worked examples of this
-format*. That is an open decision, recorded rather than quietly settled.
+**The example worlds live with the reference implementation**, and that is now
+a decision rather than an open question: they cite that agent's spec, change
+when it does, and are exercised by its suite. This repository's own tests use a
+lending library, so the format is tested on a domain it was not written for.
+
+Most of the integration tests that drive a real agent against a world also stay
+there permanently.
 
 ## Licence
 

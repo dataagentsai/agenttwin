@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dataagentsai/agenttwin/schema/awd.schema.json",
+  "title": "Agent World Description",
+  "description": "The environment an agent is exercised in: the rows that exist at t0, what the world is faithful about, and which of the agent's external systems it stands in for. Draft v0. A world CITES the agent's specification for entities, operations and policy, and may not declare them — see SPEC.md.",
+  "type": "object",
+  "required": ["apiVersion", "name", "spec", "systems"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": { "const": "awd/v0" },
+    "name": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "seed": { "type": "integer", "description": "Fixes everything random a run against this world does." },
+    "spec": {
+      "type": "object",
+      "required": ["aoas", "version", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "aoas": { "type": "string", "description": "The cited agent specification's id." },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "path": { "type": "string", "description": "Where to find it. A locator, not the citation: a path that leads to a different id or version fails at load." }
+      }
+    },
+    "fidelity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "faithful_about": { "type": "array", "items": { "type": "string" } },
+        "not_faithful_about": { "type": "array", "items": { "type": "string" }, "description": "The more useful half. A world listing only its strengths invites assertions it cannot support." },
+        "verified_against": { "type": ["string", "null"], "description": "How the fidelity claim was checked. null means asserted, not tested." }
+      }
+    },
+    "systems": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["projects"],
+        "additionalProperties": false,
+        "properties": {
+          "projects": { "type": "string", "description": "The agent specification's external system this one stands in for." },
+          "resolution": { "enum": ["mock", "replay", "real", "shadow"], "description": "mock: answer from the world. replay: answer from a recording. real: call the real system. shadow: call the real one, serve the mock, diff the two — the mock-fidelity drift detector." },
+          "presents": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "description": { "type": "string" },
+                "refusal": { "type": "string", "description": "What the system says when a precondition fails. May name the entity's fields as {field}." }
+              }
+            },
+            "description": "How the stand-in presents each operation: the system's words, not the agent's."
+          },
+          "x_binding": {
+            "type": "object",
+            "description": "Outside the format. Realisation carried until the binding spec exists; not normative."
+          }
+        }
+      }
+    },
+    "records": {
+      "type": "object",
+      "additionalProperties": { "type": "array", "items": { "type": "object" } },
+      "description": "The rows that exist at t0, by entity. Only entities the projected systems own."
+    }
+  },
+  "not": {
+    "anyOf": [{ "required": ["entities"] }, { "required": ["actions"] }, { "required": ["policies"] }]
+  }
+}

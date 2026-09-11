@@ -3,16 +3,20 @@
 AgentTwin twins the agent's **world**, not the agent. The agent under test is
 real; its environment is the twin.
 
-A world declares entities, the rows that exist at t₀, and — the part that
-matters — **the eligibility policy as data rather than as code**. That is the
-resolution of the question the functional spec left open: T1 and T2 are
-specifiable, T3 never is, and so T3 is not specified at all. It is *declared*,
-here, per world.
+A world declares the rows that exist at t₀, what it is faithful about, and
+which of the agent's external systems it stands in for. **It does not declare
+the domain.** Entities, operations and eligibility policy are the agent's
+specification (AOAS), and a world *cites* that specification rather than
+restating it — so an agent spec and a world that disagree cannot exist, because
+there is only one statement of each rule.
 
 The agent does not know the return window. The tool server does not know it
-either any more: it reads it from the world it was projected from. A rule that
-lives in one declarative place can be varied per scenario, which is what makes
+either: it reads it from the specification the world cites. A rule that lives
+in one declarative place can still be varied per scenario, which is what makes
 "return on day 31" a case you write rather than a fixture you edit.
+
+`World` is the composed, in-memory result — the agent spec's entities and
+operations, projected through the world's systems. `loader.py` builds it.
 
 ## Fidelity is per-property
 
@@ -51,7 +55,10 @@ class Fidelity(BaseModel):
 class Field_(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    type: Literal["id", "text", "email", "int", "bool", "enum", "money"] = "text"
+    type: Literal[
+        "id", "text", "email", "phone", "int", "number", "money", "bool", "date", "timestamp",
+        "enum",
+    ] = "text"
     values: tuple[str, ...] = ()
     ref: str | None = None
     """`entity.field` — a declared join.
@@ -90,8 +97,11 @@ class Condition(BaseModel):
     field: str
     equals: tuple[Any, ...] | None = None
     not_equals: tuple[Any, ...] | None = None
-    at_most: int | None = None
-    at_least: int | None = None
+    at_most: int | float | None = None
+    at_least: int | float | None = None
+    """Numbers, not integers — a money bound has to compare. The agent spec's
+    condition schema says the same, and one vocabulary with two dialects is the
+    duplication this format exists to remove."""
 
     def holds(self, row: dict) -> bool:
         value = row.get(self.field)
@@ -192,7 +202,9 @@ class Action(BaseModel):
     what was owed, because nothing else in the system knows.
     """
     sets: dict[str, Any] = Field(default_factory=dict)
-    refusal: str = "that is not possible for an order that is {status}"
+    refusal: str = "that is not possible in its current state"
+    """The default names no entity. The format cannot know the domain, and a
+    default that said "order" was a domain noun inside it."""
     description: str = ""
 
     def evaluate(self, row: dict) -> tuple[bool, str]:
@@ -206,8 +218,43 @@ class System(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     binding: Literal["mcp"] = "mcp"
+    """Realisation, not world. Carried here until the binding spec exists."""
     resolution: Resolution = "mock"
+    projects: str | None = None
+    """The agent spec's external system this one stands in for."""
     actions: dict[str, Action] = Field(default_factory=dict)
+
+
+class SpecRef(BaseModel):
+    """Which agent specification a world cites.
+
+    `aoas` and `version` are the citation; `path` is only where to find it. A
+    path that leads to a different spec, or a different version of the same one,
+    fails at load — a pointer that silently follows a moving target is not a
+    citation.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    aoas: str
+    version: str
+    path: str
+
+
+class Unenforced(BaseModel):
+    """A statement in the agent spec that this world cannot enforce, and why.
+
+    Computed, never declared. A world that can only enforce what it can see must
+    say what it cannot see — otherwise a precondition the world silently skipped
+    reads, in every run against it, as a precondition that held.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    system: str
+    operation: str
+    statement: str
+    reason: str
 
 
 class World(BaseModel):
@@ -218,10 +265,12 @@ class World(BaseModel):
     name: str
     version: int = 1
     seed: int = 0
+    spec: SpecRef | None = None
     fidelity: Fidelity = Fidelity()
     entities: dict[str, Entity] = Field(default_factory=dict)
     systems: dict[str, System] = Field(default_factory=dict)
     records: dict[str, tuple[dict, ...]] = Field(default_factory=dict)
+    unenforced: tuple[Unenforced, ...] = ()
 
     def ontology(self) -> dict[str, str]:
         """Every declared join, flattened. `order.customer_id -> customer.id`.
@@ -250,6 +299,8 @@ __all__ = [
     "Field_",
     "Invariant",
     "Resolution",
+    "SpecRef",
     "System",
+    "Unenforced",
     "World",
 ]

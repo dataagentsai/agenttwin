@@ -1,29 +1,286 @@
-"""YAML in, `World` out — with the validation that makes a world trustworthy.
+"""A world file and the agent spec it cites in, `World` out — with the
+validation that makes a world trustworthy.
 
 A world file that parses but declares a join to a non-existent entity, or seeds a
 row that violates its own enum, is worse than one that fails to parse: it runs,
 and every verdict it produces is quietly about a different world than the one
 someone thought they wrote.
+
+## What comes from where
+
+| In the composed `World` | From |
+|---|---|
+| entities, fields, invariants | the agent spec — only those the projected systems **own** |
+| actions, conditions, effects | the spec's operations, via `external.<system>.operations` |
+| tool descriptions, refusal text | the world — how the stand-in system presents itself |
+| records, seed, fidelity, resolution | the world |
+| transport, scopes | the world's `x_binding`, until the binding spec exists |
+
+The world file is **forbidden** from declaring entities or actions. Not
+discouraged — the model rejects the keys. That is what "no domain rule appears
+in both files" means when it is enforced rather than hoped for.
+
+## What a world cannot enforce
+
+A world twins systems, and a system can only check what it can see. A condition
+that compares with the **session**, one over **another entity's** fields, and an
+effect that writes an **operation input** the projection does not carry are all
+real statements of the agent spec that no stand-in system can evaluate. They are
+not dropped silently: each becomes an `Unenforced` entry on the world, so a
+report can say which statements were never tested against it.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Literal
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from agenttwin.world import World
+from agenttwin.spec import InvalidSpec, load_spec
+from agenttwin.world import (
+    Action,
+    Condition,
+    Entity,
+    Fidelity,
+    Field_,
+    Invariant,
+    Resolution,
+    SpecRef,
+    System,
+    Unenforced,
+    World,
+)
+
+API_VERSION = "awd/v0"
 
 
 class InvalidWorld(Exception):
     """The file parsed and does not describe a coherent world."""
 
 
-def load(path: Path | str) -> World:
-    raw = yaml.safe_load(Path(path).read_text())
-    world = World.model_validate(raw)
+# ------------------------------------------------------------- the world file
+
+
+class Presentation(BaseModel):
+    """How a stand-in system presents one operation: the system's words, not the
+    agent's. The spec says what may happen; this is what the system *says*."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    description: str = ""
+    refusal: str | None = None
+
+
+class XBinding(BaseModel):
+    """Realisation carried by a world until the binding spec exists. The `x_`
+    prefix is the family's mark for "outside the format"."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    transport: Literal["mcp"] = "mcp"
+    scopes: dict[str, str] = Field(default_factory=dict)
+
+
+class SystemFile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    projects: str
+    resolution: Resolution = "mock"
+    presents: dict[str, Presentation] = Field(default_factory=dict)
+    x_binding: XBinding = XBinding()
+
+
+class WorldFile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+
+    api_version: Literal["awd/v0"] = Field(alias="apiVersion")
+    name: str
+    version: int = 1
+    seed: int = 0
+    spec: SpecRef
+    fidelity: Fidelity = Fidelity()
+    systems: dict[str, SystemFile]
+    records: dict[str, tuple[dict, ...]] = Field(default_factory=dict)
+
+
+# ------------------------------------------------------------------- loading
+
+
+def resolve_spec(world_path: Path | str) -> Path:
+    """Where a world file's cited spec is, relative to the world file."""
+    raw = yaml.safe_load(Path(world_path).read_text())
+    return (Path(world_path).parent / raw["spec"]["path"]).resolve()
+
+
+def load(path: Path | str, *, spec: Path | str | None = None) -> World:
+    """Load a world and compose it with the spec it cites.
+
+    `spec` overrides the world's own `spec.path` — for a world copied somewhere
+    its relative path no longer reaches. The citation is still checked.
+    """
+    path = Path(path)
+    raw = yaml.safe_load(path.read_text())
+    try:
+        wf = WorldFile.model_validate(raw)
+    except ValidationError as e:
+        raise InvalidWorld(f"{path}: {e}") from e
+
+    spec_path = Path(spec) if spec is not None else path.parent / wf.spec.path
+    try:
+        doc = load_spec(spec_path)
+    except InvalidSpec as e:
+        raise InvalidWorld(str(e)) from e
+
+    world = compose(wf, doc)
     _check(world)
     return world
+
+
+def compose(wf: WorldFile, doc: dict) -> World:
+    cited = (wf.spec.aoas, wf.spec.version)
+    found = (doc["agent"]["id"], doc["agent"]["version"])
+    if cited != found:
+        raise InvalidWorld(
+            f"world cites {cited[0]}@{cited[1]}; the spec found is {found[0]}@{found[1]}"
+        )
+
+    machines = doc.get("state_machines", {})
+    external = doc.get("external", {})
+    operations = doc.get("operations", {})
+    unenforced: list[Unenforced] = []
+
+    # Which entities this world holds: exactly those its systems own.
+    owned: list[str] = []
+    for sname, s in wf.systems.items():
+        if s.projects not in external:
+            raise InvalidWorld(
+                f"system {sname!r} projects {s.projects!r}, which the spec does not declare"
+            )
+        for e in external[s.projects].get("owns", ()):
+            if e not in owned:
+                owned.append(e)
+
+    entities: dict[str, Entity] = {}
+    for en in doc.get("entities", {}):
+        if en in owned:
+            entities[en] = _entity(en, doc["entities"][en], machines)
+
+    systems: dict[str, System] = {}
+    for sname, s in wf.systems.items():
+        exposed = external[s.projects].get("operations", ())
+        for named, kind in ((s.presents, "presents"), (s.x_binding.scopes, "x_binding.scopes")):
+            for op in named:
+                if op not in exposed:
+                    raise InvalidWorld(
+                        f"system {sname!r} {kind} {op!r}, which {s.projects!r} does not expose"
+                    )
+
+        actions: dict[str, Action] = {}
+        for op_name in exposed:
+            if op_name not in operations:
+                raise InvalidWorld(
+                    f"{s.projects!r} exposes {op_name!r}, which the spec does not define"
+                )
+            op = operations[op_name]
+            if op["entity"] not in entities:
+                raise InvalidWorld(
+                    f"{op_name!r} acts on {op['entity']!r}, which {s.projects!r} does not own"
+                )
+
+            def miss(statement: str, reason: str, op_name=op_name, sname=sname) -> None:
+                unenforced.append(
+                    Unenforced(system=sname, operation=op_name, statement=statement, reason=reason)
+                )
+
+            allowed = _conditions(op.get("preconditions", ()), op["entity"], miss)
+            required = _conditions(op.get("owed_when", ()), op["entity"], miss)
+
+            sets: dict[str, Any] = {}
+            effect = op.get("effect")
+            if isinstance(effect, dict):
+                for field, value in effect.items():
+                    if isinstance(value, str) and value.startswith("$"):
+                        miss(
+                            f"sets {field} from input {value}",
+                            "the projection carries no operation input beyond the key",
+                        )
+                    else:
+                        sets[field] = value
+
+            shown = s.presents.get(op_name, Presentation())
+            actions[op_name] = Action(
+                entity=op["entity"],
+                side_effect=op["side_effect"],
+                scope=s.x_binding.scopes.get(op_name),
+                allowed_when=allowed,
+                required_when=required,
+                sets=sets,
+                description=shown.description,
+                **({"refusal": shown.refusal} if shown.refusal is not None else {}),
+            )
+        systems[sname] = System(
+            binding=s.x_binding.transport,
+            resolution=s.resolution,
+            projects=s.projects,
+            actions=actions,
+        )
+
+    return World(
+        name=wf.name,
+        version=wf.version,
+        seed=wf.seed,
+        spec=wf.spec,
+        fidelity=wf.fidelity,
+        entities=entities,
+        systems=systems,
+        records=wf.records,
+        unenforced=tuple(unenforced),
+    )
+
+
+def _entity(name: str, spec: dict, machines: dict) -> Entity:
+    fields = {}
+    for fn, f in spec["fields"].items():
+        values = f.get("values") or machines.get(f.get("of"), {}).get("states", ())
+        fields[fn] = Field_(type=f["type"], values=tuple(values), ref=f.get("ref"))
+    invariants = tuple(
+        Invariant(
+            name=i["name"],
+            when=Condition(**_local(i["when"], name)),
+            then=Condition(**_local(i["then"], name)),
+            because=i.get("because", ""),
+        )
+        for i in spec.get("invariants", ())
+    )
+    return Entity(key=spec.get("key", "id"), fields=fields, invariants=invariants)
+
+
+def _local(condition: dict, entity: str) -> dict:
+    """`order.status` on an order is `status`. Anything else is left qualified,
+    and the caller decides what that means."""
+    c = dict(condition)
+    prefix, _, rest = c["field"].partition(".")
+    if rest and prefix == entity:
+        c["field"] = rest
+    return c
+
+
+def _conditions(conditions, entity: str, miss) -> tuple[Condition, ...]:
+    kept = []
+    for raw in conditions:
+        c = _local(raw, entity)
+        if "equals_session" in c:
+            miss(f"{raw['field']} equals session.{c['equals_session']}", "a world has no session")
+        elif "." in c["field"]:
+            miss(f"condition on {c['field']}", "it reads another entity's field")
+        else:
+            kept.append(Condition(**c))
+    return tuple(kept)
+
+
+# ---------------------------------------------------------------- coherence
 
 
 def _check(world: World) -> None:
@@ -45,12 +302,8 @@ def _check(world: World) -> None:
 
     for system_name, system in world.systems.items():
         for action_name, action in system.actions.items():
-            if action.entity not in world.entities:
-                raise InvalidWorld(
-                    f"{system_name}.{action_name} acts on unknown entity {action.entity!r}"
-                )
             declared = world.entities[action.entity].fields
-            for condition in action.allowed_when:
+            for condition in (*action.allowed_when, *action.required_when):
                 if condition.field not in declared:
                     raise InvalidWorld(
                         f"{system_name}.{action_name} is conditional on "
@@ -95,4 +348,4 @@ def _check(world: World) -> None:
                     )
 
 
-__all__ = ["InvalidWorld", "load"]
+__all__ = ["API_VERSION", "InvalidWorld", "WorldFile", "compose", "load", "resolve_spec"]
