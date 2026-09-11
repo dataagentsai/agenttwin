@@ -54,15 +54,18 @@ are beyond any world, and each is **reported, never dropped**:
 
 | Statement | Why no world can enforce it |
 |---|---|
-| A condition compared with the session (`equals_session`) | A world has no session |
 | A condition over another entity's field | A system checks the row it is asked about |
 | An effect that writes an operation input (`$name`) | The projection carries no input beyond the key |
 
 The composed world lists them as `unenforced`. A statement a world silently
-skipped would read, in every run against it, as a statement that held. For the
-reference agent the list is six entries long — ownership on the five order
-operations, and the address change — and the first of those is the rule behind
-its critical defect.
+skipped would read, in every run against it, as a statement that held.
+
+**A comparison with the session is enforced.** The caller presents its session
+in the call's `_meta` under `aoas/session` — a binding the agent's transport and
+the stand-in share — and a row the caller may not touch is answered exactly as a
+row that does not exist. Until 12 September 2026 this row read "a world has no
+session", and ownership sat in the unenforced list: that was the reference
+agent's critical defect, F-016, and the list was where it was visible.
 
 ## Variants
 

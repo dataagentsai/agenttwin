@@ -269,9 +269,7 @@ def test_composition(tmp_path: Path) -> None:
 def test_what_a_world_cannot_enforce_is_said_not_skipped(tmp_path: Path) -> None:
     world = load(write(tmp_path, SPEC, WORLD))
     assert sorted((u.operation, u.reason) for u in world.unenforced) == [
-        ("get_loan", "a world has no session"),
         ("note_due_date", "the projection carries no operation input beyond the key"),
-        ("renew", "a world has no session"),
     ]
     assert world.systems["catalogue"].actions["note_due_date"].sets == {}, (
         "never the literal '$note'"
@@ -339,3 +337,33 @@ MERGE_PATCH = [
 )
 def test_rfc_7386(target, patch, expected) -> None:
     assert merge_patch(copy.deepcopy(target), patch) == expected
+
+
+def test_ownership_is_enforced_not_reported(tmp_path: Path) -> None:
+    """F-016's rule. A session comparison in the spec becomes a check the
+    stand-in makes on every call, not an entry in the unenforced list."""
+    actions = load(write(tmp_path, SPEC, WORLD)).systems["catalogue"].actions
+    assert [(c.field, c.session) for c in actions["renew"].session_when] == [
+        ("member_id", "member_id")
+    ]
+    assert [(c.field, c.session) for c in actions["get_loan"].session_when] == [
+        ("member_id", "member_id")
+    ]
+    assert actions["note_due_date"].session_when == (), "the spec states no owner for it"
+
+
+OWNERSHIP = [
+    ("the owner", {"member_id": "M-1"}, True),
+    ("a stranger", {"member_id": "M-2"}, False),
+    ("no session at all", None, False),
+    ("a session without the field", {"tenant": "T-1"}, False),
+]
+
+
+@pytest.mark.parametrize(("name", "session", "visible"), OWNERSHIP, ids=[o[0] for o in OWNERSHIP])
+def test_a_row_is_visible_only_to_its_owner(
+    tmp_path: Path, name: str, session, visible: bool
+) -> None:
+    renew = load(write(tmp_path, SPEC, WORLD)).systems["catalogue"].actions["renew"]
+    row = {"id": "L-1", "member_id": "M-1", "status": "open", "days_overdue": 0}
+    assert renew.visible_to(row, session) is visible

@@ -23,11 +23,12 @@ in both files" means when it is enforced rather than hoped for.
 ## What a world cannot enforce
 
 A world twins systems, and a system can only check what it can see. A condition
-that compares with the **session**, one over **another entity's** fields, and an
-effect that writes an **operation input** the projection does not carry are all
-real statements of the agent spec that no stand-in system can evaluate. They are
-not dropped silently: each becomes an `Unenforced` entry on the world, so a
-report can say which statements were never tested against it.
+over **another entity's** fields, and an effect that writes an **operation
+input** the projection does not carry, are real statements of the agent spec that
+no stand-in can evaluate. They are not dropped silently: each becomes an
+`Unenforced` entry on the world, so a report can say which statements were never
+tested against it. A comparison with the **session** is enforced — the caller
+presents its session in the call's metadata (F-016).
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ from agenttwin.world import (
     Field_,
     Invariant,
     Resolution,
+    SessionCondition,
     SpecRef,
     System,
     Unenforced,
@@ -194,8 +196,8 @@ def compose(wf: WorldFile, doc: dict) -> World:
                     Unenforced(system=sname, operation=op_name, statement=statement, reason=reason)
                 )
 
-            allowed = _conditions(op.get("preconditions", ()), op["entity"], miss)
-            required = _conditions(op.get("owed_when", ()), op["entity"], miss)
+            allowed, owner = _conditions(op.get("preconditions", ()), op["entity"], miss)
+            required, _ = _conditions(op.get("owed_when", ()), op["entity"], miss)
 
             sets: dict[str, Any] = {}
             effect = op.get("effect")
@@ -215,6 +217,7 @@ def compose(wf: WorldFile, doc: dict) -> World:
                 side_effect=op["side_effect"],
                 scope=s.x_binding.scopes.get(op_name),
                 allowed_when=allowed,
+                session_when=owner,
                 required_when=required,
                 sets=sets,
                 description=shown.description,
@@ -267,17 +270,22 @@ def _local(condition: dict, entity: str) -> dict:
     return c
 
 
-def _conditions(conditions, entity: str, miss) -> tuple[Condition, ...]:
-    kept = []
+def _conditions(
+    conditions, entity: str, miss
+) -> tuple[tuple[Condition, ...], tuple[SessionCondition, ...]]:
+    """Split a spec's conditions into what the row decides and what the caller's
+    session decides. One over another entity's field no stand-in can see."""
+    kept: list[Condition] = []
+    owner: list[SessionCondition] = []
     for raw in conditions:
         c = _local(raw, entity)
-        if "equals_session" in c:
-            miss(f"{raw['field']} equals session.{c['equals_session']}", "a world has no session")
-        elif "." in c["field"]:
+        if "." in c["field"]:
             miss(f"condition on {c['field']}", "it reads another entity's field")
+        elif "equals_session" in c:
+            owner.append(SessionCondition(field=c["field"], session=c["equals_session"]))
         else:
             kept.append(Condition(**c))
-    return tuple(kept)
+    return tuple(kept), tuple(owner)
 
 
 # ---------------------------------------------------------------- coherence

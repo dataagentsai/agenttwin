@@ -30,9 +30,14 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 
 from agenttwin.world import Action, World
+
+SESSION_META = "aoas/session"
+"""Where a caller presents its session in a call's `_meta`. A binding between
+the agent's transport and this stand-in — the order system's contract says the
+caller's identity reaches it; which key carries it is realisation."""
 
 META_SIDE_EFFECT = "side_effect"
 META_REQUIRED_SCOPE = "required_scope"
@@ -101,10 +106,13 @@ def _register(srv: MCPServer, live: Live, action_name: str, action: Action, wrap
     entity = live.world.entities[action.entity]
     key_field = entity.key
 
-    async def handler(**arguments: Any) -> dict[str, Any]:
+    async def handler(ctx: Context | None = None, **arguments: Any) -> dict[str, Any]:
         key = arguments[key_field]
         row = live.get(action.entity, key)
-        if row is None:
+        # Not yours is answered exactly as not there (F-016). A refusal that
+        # confirmed the record exists — or, worse, returned it — would tell a
+        # stranger their guess was right and what was behind it.
+        if row is None or not action.visible_to(row, _session(ctx)):
             raise UnknownRecord(f"no {action.entity} {key}")
 
         if action.side_effect == "read":
@@ -136,6 +144,16 @@ def _register(srv: MCPServer, live: Live, action_name: str, action: Action, wrap
     )(typed if wrap is None else wrap(action_name, typed))
 
 
+def _session(ctx: Context | None) -> dict[str, object] | None:
+    """The caller's session from the call's metadata, or `None` — never a guess."""
+    try:
+        meta = ctx.request_context.meta if ctx is not None else None
+    except (AttributeError, ValueError):
+        return None
+    session = meta.get(SESSION_META) if isinstance(meta, dict) else None
+    return session if isinstance(session, dict) else None
+
+
 def _typed(handler, action_name: str, entity, key_field: str, action: Action):
     """Give the handler a signature and annotations MCP can build a schema from.
 
@@ -159,13 +177,24 @@ def _typed(handler, action_name: str, entity, key_field: str, action: Action):
             for n, t in extra.items()
         ),
     ]
+    params.append(
+        inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context, default=None)
+    )
     handler.__signature__ = inspect.Signature(params, return_annotation=dict[str, Any])
     handler.__annotations__ = {
         key_field: str,
         **extra,
+        "ctx": Context,
         "return": dict[str, Any],
     }
     return handler
 
 
-__all__ = ["Live", "META_REQUIRED_SCOPE", "META_SIDE_EFFECT", "UnknownRecord", "project"]
+__all__ = [
+    "Live",
+    "META_REQUIRED_SCOPE",
+    "META_SIDE_EFFECT",
+    "SESSION_META",
+    "UnknownRecord",
+    "project",
+]

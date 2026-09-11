@@ -28,6 +28,7 @@ outside the declared fidelity is a defect in the scenario, not in the world.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -56,7 +57,16 @@ class Field_(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     type: Literal[
-        "id", "text", "email", "phone", "int", "number", "money", "bool", "date", "timestamp",
+        "id",
+        "text",
+        "email",
+        "phone",
+        "int",
+        "number",
+        "money",
+        "bool",
+        "date",
+        "timestamp",
         "enum",
     ] = "text"
     values: tuple[str, ...] = ()
@@ -112,6 +122,25 @@ class Condition(BaseModel):
         if self.at_most is not None and value is not None and value > self.at_most:
             return False
         return not (self.at_least is not None and value is not None and value < self.at_least)
+
+
+class SessionCondition(BaseModel):
+    """A row may be touched only by the caller it belongs to.
+
+    Compares a field of the row with a field of the caller's session — the one
+    comparison the constant-valued `Condition` cannot express, and the rule
+    behind F-016. Fails closed: no session means no match.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    field: str
+    session: str
+
+    def holds(self, row: dict, session: Mapping[str, object] | None) -> bool:
+        if session is None or session.get(self.session) is None:
+            return False
+        return row.get(self.field) == session.get(self.session)
 
 
 class Invariant(BaseModel):
@@ -189,6 +218,11 @@ class Action(BaseModel):
     side_effect: Literal["read", "reversible", "irreversible"] = "read"
     scope: str | None = None
     allowed_when: tuple[Condition, ...] = ()
+    session_when: tuple[SessionCondition, ...] = ()
+    """Whose rows this action may touch. Checked before anything else, and a
+    row the caller may not touch is answered exactly as a row that does not
+    exist — a refusal that confirmed it would tell a stranger their guess was
+    right."""
     required_when: tuple[Condition, ...] = ()
     """When this action is **owed**, not merely permitted.
 
@@ -206,6 +240,9 @@ class Action(BaseModel):
     """The default names no entity. The format cannot know the domain, and a
     default that said "order" was a domain noun inside it."""
     description: str = ""
+
+    def visible_to(self, row: dict, session: Mapping[str, object] | None) -> bool:
+        return all(c.holds(row, session) for c in self.session_when)
 
     def evaluate(self, row: dict) -> tuple[bool, str]:
         for condition in self.allowed_when:
@@ -299,6 +336,7 @@ __all__ = [
     "Field_",
     "Invariant",
     "Resolution",
+    "SessionCondition",
     "SpecRef",
     "System",
     "Unenforced",
