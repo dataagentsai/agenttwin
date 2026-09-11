@@ -39,6 +39,10 @@ SESSION_META = "aoas/session"
 the agent's transport and this stand-in — the order system's contract says the
 caller's identity reaches it; which key carries it is realisation."""
 
+IDEMPOTENCY_META = "aoas/idempotency-key"
+"""Where a caller presents the key that makes a repeat recognisable here — at
+the far end, where the effect lands (F-017). Same binding as `SESSION_META`."""
+
 META_SIDE_EFFECT = "side_effect"
 META_REQUIRED_SCOPE = "required_scope"
 
@@ -55,6 +59,9 @@ class Live:
     world: World
     rows: dict[str, dict[str, dict]] = field(default_factory=dict)
     effects: list[tuple[str, str]] = field(default_factory=list)
+    answered: dict[str, dict] = field(default_factory=dict)
+    """Every keyed write's answer, by idempotency key. A repeated key is the same
+    request, and gets the same answer without the effect landing twice."""
 
     @classmethod
     def start(cls, world: World) -> Live:
@@ -118,16 +125,16 @@ def _register(srv: MCPServer, live: Live, action_name: str, action: Action, wrap
         if action.side_effect == "read":
             return {"found": True, **row}
 
-        allowed, reason = action.evaluate(row)
-        if not allowed:
-            # A refusal is a *result*, not an error. The model is expected to
-            # explain it to the customer, and an exception would deny it the
-            # chance — AAC-0053 is about recovery, not about crashing.
-            return {"allowed": False, "reason": reason, **row}
-
-        row.update(action.sets)
-        live.effects.append((action_name, key))
-        return {"allowed": True, "reason": "allowed", **row}
+        # The far end of F-017. The harness's ledger only knows what it saw
+        # succeed; when the effect lands and the reply is lost, only the system
+        # that applied it can recognise the retry.
+        key = _idempotency_key(ctx)
+        if key is not None and key in live.answered:
+            return copy.deepcopy(live.answered[key])
+        answer = _apply(live, action_name, action, row)
+        if key is not None:
+            live.answered[key] = copy.deepcopy(answer)
+        return answer
 
     handler.__name__ = action_name
     handler.__doc__ = action.description or action_name
@@ -142,6 +149,31 @@ def _register(srv: MCPServer, live: Live, action_name: str, action: Action, wrap
         },
         structured_output=True,
     )(typed if wrap is None else wrap(action_name, typed))
+
+
+def _apply(live: Live, action_name: str, action: Action, row: dict) -> dict[str, Any]:
+    """Evaluate the action's conditions against the row, and apply it if allowed.
+
+    A refusal is a *result*, not an error: the model is expected to explain it to
+    the customer, and an exception would deny it the chance — AAC-0053 is about
+    recovery, not about crashing.
+    """
+    allowed, reason = action.evaluate(row)
+    if not allowed:
+        return {"allowed": False, "reason": reason, **row}
+    row.update(action.sets)
+    live.effects.append((action_name, str(row[live.world.entities[action.entity].key])))
+    return {"allowed": True, "reason": "allowed", **row}
+
+
+def _idempotency_key(ctx: Context | None) -> str | None:
+    """The caller's idempotency key from the call's metadata, if it sent one."""
+    try:
+        meta = ctx.request_context.meta if ctx is not None else None
+    except (AttributeError, ValueError):
+        return None
+    key = meta.get(IDEMPOTENCY_META) if isinstance(meta, dict) else None
+    return key if isinstance(key, str) and key else None
 
 
 def _session(ctx: Context | None) -> dict[str, object] | None:
@@ -193,6 +225,7 @@ def _typed(handler, action_name: str, entity, key_field: str, action: Action):
 __all__ = [
     "Live",
     "META_REQUIRED_SCOPE",
+    "IDEMPOTENCY_META",
     "META_SIDE_EFFECT",
     "SESSION_META",
     "UnknownRecord",

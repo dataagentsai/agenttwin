@@ -67,6 +67,13 @@ row that does not exist. Until 12 September 2026 this row read "a world has no
 session", and ownership sat in the unenforced list: that was the reference
 agent's critical defect, F-016, and the list was where it was visible.
 
+**A repeated write is recognised here.** A caller may present an idempotency key
+in `_meta` under `aoas/idempotency-key`; a write carrying a key the stand-in has
+answered before gets that same answer, and its effect does not land twice. This
+is the far end a harness-side ledger cannot reach: when an effect lands and its
+reply is lost, only the system that applied it can tell the retry from a second
+request (F-017).
+
 ## Variants
 
 A world for a different store of the same agent cites a different spec. That
