@@ -20,7 +20,7 @@ from agenttwin.scenario import Clock, Scenario
 from agenttwin.scenario import run as run_scenario
 from agenttwin.scenario_file import ScenarioFile, load_scenario
 from agenttwin.subject import Subject
-from agenttwin.suite import Unrunnable, run_file
+from agenttwin.suite import Unrunnable, run_file, timeline_for
 from agenttwin.truth import Contradiction, answer_is_true, contradictions
 from agenttwin.world import World
 
@@ -33,6 +33,7 @@ __all__ = [
     "Unrunnable",
     "load_scenario",
     "run_file",
+    "timeline_for",
     "ChannelError",
     "Clock",
     "Contradiction",

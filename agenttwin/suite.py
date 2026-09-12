@@ -14,6 +14,7 @@ from pathlib import Path
 from agenttwin.actor import Determinism, Rule, ScriptedActor, StateMachineActor, Transcript
 from agenttwin.checks import Outcome
 from agenttwin.loader import load
+from agenttwin.perturbation import ChannelError, Slow, StaleRead, Timeline
 from agenttwin.projection import Live
 from agenttwin.record import RunRecord, diff
 from agenttwin.scenario import Clock
@@ -46,8 +47,47 @@ def actor_for(scenario: ScenarioFile):
     )
 
 
+def timeline_for(scenario: ScenarioFile) -> Timeline:
+    """The faults a scenario schedules, built from what it declared.
+
+    Handed to the binding as an opaque wrap: a perturbation happens to the
+    *system*, so the world owns it, and the implementation being driven neither
+    interprets it nor knows it is there.
+    """
+    faults = []
+    for declared in scenario.perturbations:
+        if declared.kind == "stale_read":
+            faults.append(
+                StaleRead(
+                    tool=declared.tool,
+                    on_call=declared.at_call,
+                    entity=declared.entity,
+                    key=declared.key,
+                    sets=dict(declared.sets),
+                )
+            )
+        elif declared.kind == "channel_error":
+            faults.append(
+                ChannelError(
+                    tool=declared.tool,
+                    on_call=declared.at_call,
+                    channel=declared.channel,
+                    message=declared.message,
+                )
+            )
+        else:
+            faults.append(
+                Slow(tool=declared.tool, on_call=declared.at_call, seconds=declared.seconds)
+            )
+    return Timeline(*faults)
+
+
 async def run_file(
-    path: Path, *, subject: Subject, live: Live | None = None
+    path: Path,
+    *,
+    subject: Subject,
+    live: Live | None = None,
+    timeline: Timeline | None = None,
 ) -> tuple[RunRecord, tuple[Outcome, ...]]:
     """Drive one declared scenario and answer every check it makes."""
     scenario = load_scenario(path)
@@ -84,7 +124,20 @@ async def run_file(
             if colleague is not None:
                 await colleague.review(at=moment)
 
-    outcomes = tuple(check.evaluate(world, world_0, reply) for check in scenario.expect)
+    outcomes = list(check.evaluate(world, world_0, reply) for check in scenario.expect)
+    if timeline is not None and scenario.perturbations:
+        # A scenario whose fault never landed did not test what it claimed, and
+        # passes for the wrong reason — which is worse than failing, because
+        # nobody goes looking for a control they believe they exercised.
+        missed = timeline.unfired
+        outcomes.append(
+            Outcome(
+                check="every declared fault fired",
+                passed=not missed,
+                detail="; ".join(f"{p.tool} on call {p.on_call}" for p in missed),
+            )
+        )
+    outcomes = tuple(outcomes)
     record = RunRecord(
         scenario=scenario.scenario,
         world=world.world.name,

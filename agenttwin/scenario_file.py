@@ -78,15 +78,30 @@ class DeskFile(BaseModel):
 
 
 class PerturbationFile(BaseModel):
-    """Something going wrong that is nobody's fault."""
+    """Something going wrong that is nobody's fault, scheduled on a named call.
+
+    On a *specific* call rather than randomly: a fault that lands somewhere
+    different each run produces a failure nobody can reproduce.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: Literal["stale_read", "slow", "channel_error"]
     tool: str
+    at_call: int = 1
+
+    entity: str = "order"
     key: str = ""
     sets: dict[str, str | int | bool] = Field(default_factory=dict)
-    at_call: int = 1
+    """`stale_read` only: what the world becomes after the read was answered."""
+
+    channel: Literal["execution", "protocol"] = "execution"
+    message: str = "injected fault"
+    """`channel_error` only. The model is expected to recover from an execution
+    error and rarely can from a protocol one, so which is declared matters."""
+
+    seconds: float = 0.05
+    """`slow` only. A window opener, never a latency measurement."""
 
 
 class ScenarioFile(BaseModel):
