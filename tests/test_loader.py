@@ -193,13 +193,6 @@ CASES = [
         "does not expose",
     ),
     (
-        "scoping an operation the system lacks",
-        world_(
-            lambda w: put(w["systems"]["catalogue"], "x_binding", {"scopes": {"waive_fine": "x"}})
-        ),
-        "does not expose",
-    ),
-    (
         "exposing an operation the spec lacks",
         spec_(lambda s: s["external"]["catalogue"]["operations"].append("reserve")),
         "does not define",

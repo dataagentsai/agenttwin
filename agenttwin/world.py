@@ -230,7 +230,6 @@ class Action(BaseModel):
 
     entity: str
     side_effect: Literal["read", "reversible", "irreversible"] = "read"
-    scope: str | None = None
     allowed_when: tuple[Condition, ...] = ()
     session_when: tuple[SessionCondition, ...] = ()
     """Whose rows this action may touch. Checked before anything else, and a

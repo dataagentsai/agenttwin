@@ -14,7 +14,7 @@ someone thought they wrote.
 | actions, conditions, effects | the spec's operations, via `external.<system>.operations` |
 | tool descriptions, refusal text | the world — how the stand-in system presents itself |
 | records, seed, fidelity, resolution | the world |
-| transport, scopes | the world's `x_binding`, until the binding spec exists |
+| the scope each operation requires | the **binding**, passed to `project` — not the world |
 
 The world file is **forbidden** from declaring entities or actions. Not
 discouraged — the model rejects the keys. That is what "no domain rule appears
@@ -76,23 +76,12 @@ class Presentation(BaseModel):
     refusal: str | None = None
 
 
-class XBinding(BaseModel):
-    """Realisation carried by a world until the binding spec exists. The `x_`
-    prefix is the family's mark for "outside the format"."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    transport: Literal["mcp"] = "mcp"
-    scopes: dict[str, str] = Field(default_factory=dict)
-
-
 class SystemFile(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     projects: str
     resolution: Resolution = "mock"
     presents: dict[str, Presentation] = Field(default_factory=dict)
-    x_binding: XBinding = XBinding()
 
 
 class WorldFile(BaseModel):
@@ -173,7 +162,7 @@ def compose(wf: WorldFile, doc: dict) -> World:
     systems: dict[str, System] = {}
     for sname, s in wf.systems.items():
         exposed = external[s.projects].get("operations", ())
-        for named, kind in ((s.presents, "presents"), (s.x_binding.scopes, "x_binding.scopes")):
+        for named, kind in ((s.presents, "presents"),):
             for op in named:
                 if op not in exposed:
                     raise InvalidWorld(
@@ -222,7 +211,6 @@ def compose(wf: WorldFile, doc: dict) -> World:
             actions[op_name] = Action(
                 entity=op["entity"],
                 side_effect=op["side_effect"],
-                scope=s.x_binding.scopes.get(op_name),
                 allowed_when=allowed,
                 session_when=owner,
                 required_when=required,
@@ -233,7 +221,6 @@ def compose(wf: WorldFile, doc: dict) -> World:
                 **({"refusal": shown.refusal} if shown.refusal is not None else {}),
             )
         systems[sname] = System(
-            binding=s.x_binding.transport,
             resolution=s.resolution,
             projects=s.projects,
             actions=actions,

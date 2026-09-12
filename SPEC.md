@@ -74,6 +74,13 @@ row that does not exist. Until 12 September 2026 this row read "a world has no
 session", and ownership sat in the unenforced list: that was the reference
 agent's critical defect, F-016, and the list was where it was visible.
 
+**The authority an operation requires is not the world's.** Which operations are
+privileged is the agent specification's business and what the privilege is
+*called* belongs to whatever issues credentials, so `project` takes the scope
+names from the caller. Worlds carried them in an `x_binding` block until
+12 September 2026, when the binding spec existed to hold them; a world handed
+none projects an ungated surface, which is a legitimate thing to simulate.
+
 **A repeated write is recognised here.** A caller may present an idempotency key
 in `_meta` under `aoas/idempotency-key`; a write carrying a key the stand-in has
 answered before gets that same answer, and its effect does not land twice. This
@@ -101,7 +108,7 @@ instead, so the format is tested on a domain it was not written for.
 
 - **Actors and perturbations** are still declared in code (`actor.py`,
   `perturbation.py`), not in the world file.
-- **`x_binding`** — transport and scopes — is realisation and sits outside the
-  format until the binding spec exists.
+- **Actors, again**: the model provider is an external system a run depends on
+  and a world cannot yet perturb it.
 - **Shadow mode's diff** is named and not yet built. Until it is,
   `fidelity.verified_against` is `null` for every world, which is the honest value.

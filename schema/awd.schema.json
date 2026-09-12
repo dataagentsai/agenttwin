@@ -52,10 +52,6 @@
               }
             },
             "description": "How the stand-in presents each operation: the system's words, not the agent's."
-          },
-          "x_binding": {
-            "type": "object",
-            "description": "Outside the format. Realisation carried until the binding spec exists; not normative."
           }
         }
       }

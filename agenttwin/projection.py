@@ -27,6 +27,7 @@ distinguish the two.
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -90,26 +91,48 @@ class UnknownRecord(Exception):
     """
 
 
-def project(live: Live, *, name: str = "ecom", wrap=None) -> MCPServer:
+def project(
+    live: Live,
+    *,
+    name: str = "ecom",
+    wrap=None,
+    scopes: Mapping[str, str] | None = None,
+) -> MCPServer:
     """Build an MCP server from a live world.
 
     Every tool is generated from the declaration: its schema from the entity, its
     metadata from the action, its behaviour from `allowed_when` and `sets`. There
     is no per-tool code here, which is the whole claim — a second world needs a
     second YAML file and nothing else.
+
+    `scopes` names the authority each operation requires — operation to scope
+    name. It is the **binding's** vocabulary, not the world's: which operations
+    are privileged is the agent specification's business, what the privilege is
+    called belongs to whatever issues credentials. Worlds carried this in an
+    `x_binding` block until the binding spec existed; it exists now, so the
+    caller supplies it and a world that is handed none projects an ungated
+    surface, which is a legitimate thing to simulate.
     """
     srv = MCPServer(name)
     system = live.world.systems.get(name)
     if system is None:
         raise KeyError(f"world {live.world.name!r} declares no system {name!r}")
 
+    required = dict(scopes or {})
     for action_name, action in system.actions.items():
-        _register(srv, live, action_name, action, wrap)
+        _register(srv, live, action_name, action, wrap, required.get(action_name))
 
     return srv
 
 
-def _register(srv: MCPServer, live: Live, action_name: str, action: Action, wrap=None) -> None:
+def _register(
+    srv: MCPServer,
+    live: Live,
+    action_name: str,
+    action: Action,
+    wrap=None,
+    scope: str | None = None,
+) -> None:
     entity = live.world.entities[action.entity]
     key_field = entity.key
 
@@ -147,7 +170,7 @@ def _register(srv: MCPServer, live: Live, action_name: str, action: Action, wrap
         description=action.description or action_name,
         meta={
             META_SIDE_EFFECT: action.side_effect,
-            **({META_REQUIRED_SCOPE: action.scope} if action.scope else {}),
+            **({META_REQUIRED_SCOPE: scope} if scope else {}),
         },
         structured_output=True,
     )(typed if wrap is None else wrap(action_name, typed))
