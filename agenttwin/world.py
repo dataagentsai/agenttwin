@@ -77,6 +77,19 @@ class Field_(BaseModel):
     you identity, and identity is what makes two systems' rows the same row.
     """
 
+    untrusted: bool = False
+    """Written by somebody other than the system — content, never instruction.
+
+    Carried because a world has to know where an attack may legitimately be
+    planted: an injection belongs in a field a customer or a warehouse writes,
+    and planting one in text the system itself produces tests a threat nobody
+    faces.
+    """
+
+    pii: bool = False
+    """Personal data. Declared here so redaction and leak checks read one
+    statement rather than each keeping a list."""
+
     advances: Literal["days"] | None = None
     """A counter that runs with world time.
 

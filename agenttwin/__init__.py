@@ -21,7 +21,14 @@ from agenttwin.scenario import Clock, Scenario
 from agenttwin.scenario import run as run_scenario
 from agenttwin.scenario_file import ScenarioFile, load_scenario
 from agenttwin.subject import Subject
-from agenttwin.suite import Unrunnable, provider_faults, run_file, timeline_for
+from agenttwin.suite import (
+    Unrunnable,
+    attack_cases,
+    plant,
+    provider_faults,
+    run_file,
+    timeline_for,
+)
 from agenttwin.truth import Contradiction, answer_is_true, contradictions
 from agenttwin.world import World
 
@@ -33,6 +40,8 @@ __all__ = [
     "Subject",
     "Unrunnable",
     "load_scenario",
+    "attack_cases",
+    "plant",
     "provider_faults",
     "run_file",
     "timeline_for",

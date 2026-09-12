@@ -20,6 +20,7 @@ from agenttwin.actor import (
     StateMachineActor,
     Transcript,
 )
+from agenttwin.attacks import cases
 from agenttwin.checks import Outcome
 from agenttwin.loader import load
 from agenttwin.personas import brief_for
@@ -29,6 +30,45 @@ from agenttwin.record import RunRecord, diff
 from agenttwin.scenario import Clock
 from agenttwin.scenario_file import ScenarioFile, load_scenario
 from agenttwin.subject import Subject
+
+
+def attack_cases(scenario: ScenarioFile) -> list[tuple[str, str]]:
+    """`(case name, payload)` for a scenario that declares a generator.
+
+    The caller runs the scenario once per case against a fresh world, planting
+    the payload first. Fresh per case on purpose: an attack that succeeded would
+    otherwise leave the world changed for the next one, and the second failure
+    would be the first one's fault.
+    """
+    if scenario.generate is None:
+        return []
+    payloads = cases(
+        scenario.generate.kind, seed=scenario.generate.seed, count=scenario.generate.count
+    )
+    width = len(str(len(payloads)))
+    return [(f"case {i + 1:0{width}d}", payload) for i, payload in enumerate(payloads)]
+
+
+def plant(live: Live, scenario: ScenarioFile, payload: str) -> None:
+    """Put one payload where the scenario says, and refuse a field that is not
+    declared untrusted — planting an instruction in text the system itself
+    writes tests a threat nobody faces."""
+    declared = scenario.generate
+    if declared is None:
+        return
+    entity, _, field_name = declared.into.partition(".")
+    spec = live.world.entities.get(entity)
+    if spec is None or field_name not in spec.fields:
+        raise Unrunnable(f"{declared.into} is not a declared field")
+    if not spec.fields[field_name].untrusted:
+        raise Unrunnable(
+            f"{declared.into} is not declared untrusted — planting an instruction "
+            "in a field the system writes tests a threat that does not exist"
+        )
+    row = live.get(entity, declared.key)
+    if row is None:
+        raise Unrunnable(f"no {entity} {declared.key} to plant into")
+    row[field_name] = payload
 
 
 class Unrunnable(Exception):

@@ -244,10 +244,17 @@ def _entity(name: str, spec: dict, machines: dict) -> Entity:
     for fn, f in spec["fields"].items():
         values = f.get("values") or machines.get(f.get("of"), {}).get("states", ())
         when = f.get("advances_when")
+        # Enumerated, and that has now cost three fields: `advances`,
+        # `advances_when` and `untrusted` were each declared in a spec, dropped
+        # silently here, and found by something downstream behaving as though the
+        # declaration did not exist. Anything added to the field vocabulary has
+        # to be added here too, and the schema is the list to check against.
         fields[fn] = Field_(
             type=f["type"],
             values=tuple(values),
             ref=f.get("ref"),
+            untrusted=bool(f.get("untrusted", False)),
+            pii=bool(f.get("pii", False)),
             advances=f.get("advances"),
             advances_when=Condition(**_local(when, name)) if when else None,
         )

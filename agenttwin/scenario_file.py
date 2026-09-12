@@ -138,6 +138,29 @@ class PerturbationFile(BaseModel):
         return self
 
 
+class GenerateFile(BaseModel):
+    """Many cases from one declaration: a generator, a seed and a count.
+
+    The scenario is then run once per case, with the payload planted in a field
+    somebody else writes. Two hundred injection attempts is one block, it is
+    reproducible from the seed, and it runs unchanged against a regenerated
+    agent — which hand-written cases do not, because they encode the phrasing
+    whoever wrote them happened to think of.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: str = "injection"
+    seed: int = 1
+    count: int = 10
+    into: str
+    """`entity.field` — where the payload is planted. Must be a field the
+    specification marks `untrusted`, because planting an instruction in a field
+    the *system* writes tests a threat that does not exist."""
+    key: str
+    """The row to plant it in."""
+
+
 class ScenarioFile(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -165,6 +188,7 @@ class ScenarioFile(BaseModel):
     approver: ApproverFile | None = None
     desk: DeskFile | None = None
     perturbations: tuple[PerturbationFile, ...] = ()
+    generate: GenerateFile | None = None
     expect: tuple[Check, ...] = ()
 
 
