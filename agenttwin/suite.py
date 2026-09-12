@@ -146,8 +146,9 @@ async def run_file(
             if colleague is not None:
                 await colleague.review(at=moment)
 
-    outcomes = list(check.evaluate(world, world_0, reply) for check in scenario.expect)
-    if timeline is not None and scenario.perturbations:
+    calls = dict(timeline.calls) if timeline is not None else {}
+    outcomes = [check.evaluate(world, world_0, reply, calls) for check in scenario.expect]
+    if timeline is not None and any(p.kind not in PROVIDER_KINDS for p in scenario.perturbations):
         # A scenario whose fault never landed did not test what it claimed, and
         # passes for the wrong reason — which is worse than failing, because
         # nobody goes looking for a control they believe they exercised.

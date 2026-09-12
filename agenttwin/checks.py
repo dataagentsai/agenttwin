@@ -8,6 +8,7 @@ closed:
 
 | Check | Asks | Answered by |
 |---|---|---|
+| `called` | was this tool called, this many times | the timeline's call counts |
 | `effect` | did this operation land on this row, this many times | the world's effect log |
 | `row` | does this field hold this value now | the world's rows |
 | `world` | did anything at all change | the snapshot diff |
@@ -47,6 +48,12 @@ class Outcome(BaseModel):
 class Check(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    called: str | None = None
+    """A tool name. Unlike `effect`, this sees **reads** — which the effect log
+    does not record, because a read changes nothing. A scenario that stages a
+    fault on a read has to be able to say the read happened, or it cannot tell
+    *the agent behaved* from *the fault never landed*."""
+
     effect: str | None = None
     """An operation name. With `times: 0`, that it never happened."""
     key: str | None = None
@@ -74,6 +81,7 @@ class Check(BaseModel):
         kinds = [
             k
             for k, v in (
+                ("called", self.called),
                 ("effect", self.effect),
                 ("row", self.row),
                 ("world", self.world),
@@ -94,6 +102,11 @@ class Check(BaseModel):
         return self
 
     def describe(self) -> str:
+        if self.called:
+            times = (
+                "never" if self.times == 0 else f"{self.times}x" if self.times else "at least once"
+            )
+            return f"{self.called} called {times}"
         if self.effect:
             times = (
                 "never" if self.times == 0 else f"{self.times}×" if self.times else "at least once"
@@ -109,8 +122,15 @@ class Check(BaseModel):
             return f"the reply tells the truth about {self.id}"
         return f"the reply {self.reply.replace('_', ' ')} {self.text!r}"
 
-    def evaluate(self, live: Live, world_0: dict, reply: str) -> Outcome:
+    def evaluate(
+        self, live: Live, world_0: dict, reply: str, calls: dict[str, int] | None = None
+    ) -> Outcome:
         name = self.describe()
+        if self.called is not None:
+            made = (calls or {}).get(self.called, 0)
+            want = 1 if self.times is None else self.times
+            ok = made >= 1 if self.times is None else made == want
+            return Outcome(check=name, passed=ok, detail=f"called {made}x, wanted {want}")
         if self.effect is not None:
             landed = [e for e in live.effects if e[0] == self.effect]
             if self.key is not None:
