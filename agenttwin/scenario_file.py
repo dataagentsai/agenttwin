@@ -176,7 +176,12 @@ class ScenarioFile(BaseModel):
     max_turns: int = 6
     step_seconds: int = 3600
     """How much time passes per turn, for the offstage humans. "The reviewer took
-    an hour" is a property of the scenario, not of how slow the machine was."""
+    an hour" is a property of the scenario, not of how slow the machine was.
+
+    **Set it below the shortest window you want a person to beat.** The default
+    is an hour, and an escalation that lapses in thirty minutes is gone before a
+    colleague looks — so a scenario with a desk and no `step_seconds` tests the
+    desk arriving too late, which is a real case and rarely the intended one."""
     step_days: int = 0
     """How much time passes **in the world** per turn.
 

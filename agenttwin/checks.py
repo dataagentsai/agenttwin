@@ -9,6 +9,8 @@ closed:
 | Check | Asks | Answered by |
 |---|---|---|
 | `called` | was this tool called, this many times | the timeline's call counts |
+| `handed_off` | did a person end up holding this, this many times | what the offstage desk saw |
+| `decided` | what the reviewer's record says happened | what the offstage approver saw |
 | `effect` | did this operation land on this row, this many times | the world's effect log |
 | `row` | does this field hold this value now | the world's rows |
 | `world` | did anything at all change | the snapshot diff |
@@ -20,8 +22,14 @@ closed:
 deliberate: a suite that asserts mostly on prose is measuring an author's taste
 in phrasing, and it fails the moment a regenerated agent words its refusal
 differently — which is exactly what "similar, not identical" means. `reply` is
-kept for the case where the *claim itself* is the failure, and `never_says` is
-the safer half of it.
+kept for the case where the *claim itself* is the failure.
+
+**`reply` matches text and not meaning, and a negation will trip it.** A
+scenario asserting `never_says: "has been refunded"` failed against *"Nothing
+has been refunded yet"* — the exact sentence the agent ought to say. Prefer
+`truthful`, which compares what the reply claims against what the row actually
+holds; reach for `reply` only when a specific form of words is itself the
+hazard, and expect it to be the check that ages worst.
 """
 
 from __future__ import annotations
@@ -47,6 +55,18 @@ class Outcome(BaseModel):
 
 class Check(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+    handed_off: int | None = None
+    """How many escalations a desk saw. **The only honest way a scenario can ask
+    whether a handoff happened**: an escalation lives in the agent's own store,
+    which a scenario must not be able to read — it would be reading the
+    implementation. What a person on the other end *saw* is observable, and is
+    what the customer's experience actually rests on."""
+
+    decided: str | None = None
+    """What the reviewer's record says: `granted` · `denied` · `waiting` ·
+    `refused` — the last being a decision the queue rejected, which is how
+    *answered too late* is told apart from *answered no*."""
 
     called: str | None = None
     """A tool name. Unlike `effect`, this sees **reads** — which the effect log
@@ -81,6 +101,8 @@ class Check(BaseModel):
         kinds = [
             k
             for k, v in (
+                ("handed_off", self.handed_off),
+                ("decided", self.decided),
                 ("called", self.called),
                 ("effect", self.effect),
                 ("row", self.row),
@@ -102,6 +124,10 @@ class Check(BaseModel):
         return self
 
     def describe(self) -> str:
+        if self.handed_off is not None:
+            return f"a person held this {self.handed_off} time(s)"
+        if self.decided:
+            return f"the reviewer's record says {self.decided}"
         if self.called:
             times = (
                 "never" if self.times == 0 else f"{self.times}x" if self.times else "at least once"
@@ -123,9 +149,21 @@ class Check(BaseModel):
         return f"the reply {self.reply.replace('_', ' ')} {self.text!r}"
 
     def evaluate(
-        self, live: Live, world_0: dict, reply: str, calls: dict[str, int] | None = None
+        self,
+        live: Live,
+        world_0: dict,
+        reply: str,
+        calls: dict[str, int] | None = None,
+        offstage: dict[str, tuple] | None = None,
     ) -> Outcome:
         name = self.describe()
+        if self.handed_off is not None:
+            seen = len(offstage.get("handed", ())) if offstage else 0
+            return Outcome(check=name, passed=seen == self.handed_off, detail=f"saw {seen}")
+        if self.decided is not None:
+            outcomes = [str(o) for o in (offstage.get("reviewed", ()) if offstage else ())]
+            found = any(self.decided in o for o in outcomes)
+            return Outcome(check=name, passed=found, detail="; ".join(outcomes) or "nothing")
         if self.called is not None:
             made = (calls or {}).get(self.called, 0)
             want = 1 if self.times is None else self.times
