@@ -99,6 +99,17 @@ class Field_(BaseModel):
     advances the world by days advances every field declared here.
     """
 
+    fresh_for_s: int | None = None
+    """How long a read of this field stays usable, in seconds.
+
+    Declared where something else writes the field while a conversation is open;
+    `None` says a read of it never goes stale in the sense that matters. It is
+    the *harness* that acts on this — re-reading before an irreversible action
+    whose preconditions reach the field (AHC-0107) — and a world only carries it,
+    because a stand-in that decided when its own answers expired would be
+    deciding the agent's policy for it.
+    """
+
     advances_when: Condition | None = None
     """When the counter runs — because most of them do not always.
 

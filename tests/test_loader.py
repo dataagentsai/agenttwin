@@ -373,3 +373,53 @@ def test_a_row_is_visible_only_to_its_owner(
     renew = load(write(tmp_path, SPEC, WORLD)).systems["catalogue"].actions["renew"]
     row = {"id": "L-1", "member_id": "M-1", "status": "open", "days_overdue": 0}
     assert renew.visible_to(row, session) is visible
+
+
+def test_every_field_property_the_schema_declares_is_read_by_the_loader() -> None:
+    """The enumeration in `_entity` has now cost four fields.
+
+    `advances`, `advances_when`, `untrusted` and `fresh_for` were each declared
+    in a specification, dropped silently here, and found by something downstream
+    behaving as though the declaration did not exist — a counter that never
+    moved, a planted instruction in a field nobody marked, a read that never
+    went stale. Every time the symptom was a world that quietly enforced less
+    than it said.
+
+    So the list stops being maintained by hand. This walks the AOAS schema's own
+    field vocabulary and fails on any property the loader does not mention,
+    which is the only version of this check that cannot itself go stale.
+    """
+    import json
+    import re
+    from pathlib import Path
+
+    schema_path = (
+        Path(__file__).resolve().parents[2] / "clean-ai-engineering" / "drafts" / "aoas.schema.json"
+    )
+    if not schema_path.exists():  # the sibling checkout is not always there
+        pytest.skip("the AOAS schema is in a sibling checkout that is not present")
+
+    # Declared, and deliberately not read — each with the reason, so the
+    # exemption is a decision somebody made rather than a gap nobody noticed.
+    carries_nothing = {
+        "derived": (
+            "prose: 'whole days since delivery'. It says how a value comes about, "
+            "for a reader, and there is nothing machine-readable to act on. A world "
+            "holds the value; what keeps a seeded one honest is the invariants."
+        ),
+    }
+    declared = set(json.loads(schema_path.read_text())["$defs"]["field"]["properties"])
+    source = (Path(__file__).resolve().parents[1] / "agenttwin" / "loader.py").read_text()
+    body = source[source.index("def _entity(") :]
+    unread = sorted(
+        p for p in declared - set(carries_nothing) if not re.search(rf'"{p}"', body)
+    )
+    assert unread == [], (
+        f"the schema declares these on a field and _entity never reads them: {unread} — "
+        "a dropped property is a world that enforces less than its spec says. Read it, "
+        "or add it to `carries_nothing` with why it cannot be acted on."
+    )
+    # And the other way: an exemption for something the loader has since started
+    # reading is an exemption that has outlived its truth.
+    stale = sorted(p for p in carries_nothing if re.search(rf'"{p}"', body))
+    assert stale == [], f"exempted and read anyway: {stale}"

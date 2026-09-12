@@ -36,6 +36,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
+import re
+
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -239,16 +241,32 @@ def compose(wf: WorldFile, doc: dict) -> World:
     )
 
 
+_DURATION = re.compile(r"^(\d+)(s|m|h|d)$")
+_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def _seconds(duration: str | None) -> int | None:
+    """A spec's duration — `30s`, `15m`, `24h` — as seconds, or `None`."""
+    if duration is None:
+        return None
+    match = _DURATION.match(str(duration))
+    if match is None:
+        raise InvalidWorld(f"{duration!r} is not a duration")
+    return int(match.group(1)) * _UNITS[match.group(2)]
+
+
 def _entity(name: str, spec: dict, machines: dict) -> Entity:
     fields = {}
     for fn, f in spec["fields"].items():
         values = f.get("values") or machines.get(f.get("of"), {}).get("states", ())
         when = f.get("advances_when")
-        # Enumerated, and that has now cost three fields: `advances`,
-        # `advances_when` and `untrusted` were each declared in a spec, dropped
-        # silently here, and found by something downstream behaving as though the
-        # declaration did not exist. Anything added to the field vocabulary has
-        # to be added here too, and the schema is the list to check against.
+        # Enumerated, and that has now cost four fields: `advances`,
+        # `advances_when`, `untrusted` and `fresh_for` were each declared in a
+        # spec, dropped silently here, and found by something downstream behaving
+        # as though the declaration did not exist. Anything added to the field
+        # vocabulary has to be added here too, and the schema is the list to
+        # check against — `test_loader` now walks the schema and fails on a
+        # property this function does not read, so the fifth one cannot happen.
         fields[fn] = Field_(
             type=f["type"],
             values=tuple(values),
@@ -257,6 +275,7 @@ def _entity(name: str, spec: dict, machines: dict) -> Entity:
             pii=bool(f.get("pii", False)),
             advances=f.get("advances"),
             advances_when=Condition(**_local(when, name)) if when else None,
+            fresh_for_s=_seconds(f.get("fresh_for")),
         )
     invariants = tuple(
         Invariant(
