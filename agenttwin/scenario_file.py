@@ -70,9 +70,20 @@ class ApproverFile(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    decides: Literal["grant", "refuse", "never"] = "grant"
+    decides: Literal["grant", "refuse", "never", "grant-twice"] = "grant"
     by: str = "ops-7"
     after_turns: int = 1
+    """Which review pass this person acts on. `1` is the first one — they were
+    already at their desk — and is the default because a scenario about
+    something else should not also be about a slow reviewer.
+
+    Above one it is a delay, `(after_turns - 1)` turns' worth of time, and it is
+    how the approval window is made to close on somebody: a reviewer who arrives
+    after the grant expired is a third outcome, distinct from yes and from no,
+    and the one most likely to be mishandled.
+
+    Read nowhere until 2026-09-12 (F-036). The field was here, documented, from
+    the first version of this format, and every runner dropped it."""
 
 
 class DeskFile(BaseModel):
@@ -83,6 +94,8 @@ class DeskFile(BaseModel):
     resolves: Literal["handled", "never"] = "handled"
     by: str = "desk-1"
     after_turns: int = 1
+    """Which review pass this colleague acts on — see `ApproverFile.after_turns`.
+    Above one is how an escalation is made to lapse before anybody comes."""
 
 
 class PerturbationFile(BaseModel):

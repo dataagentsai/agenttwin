@@ -185,12 +185,20 @@ async def run_file(
     if scenario.approver is not None:
         if subject.reviewer is None:
             raise Unrunnable(f"{path.name}: needs an approver and this implementation has none")
-        reviewer = subject.reviewer(scenario.approver.decides, scenario.approver.by)
+        reviewer = subject.reviewer(
+            scenario.approver.decides,
+            scenario.approver.by,
+            (scenario.approver.after_turns - 1) * scenario.step_seconds,
+        )
     colleague = None
     if scenario.desk is not None:
         if subject.colleague is None:
             raise Unrunnable(f"{path.name}: needs a desk and this implementation has none")
-        colleague = subject.colleague(scenario.desk.resolves, scenario.desk.by)
+        colleague = subject.colleague(
+            scenario.desk.resolves,
+            scenario.desk.by,
+            (scenario.desk.after_turns - 1) * scenario.step_seconds,
+        )
 
     world_0 = world.snapshot()
     actor = actor_for(scenario, voice)

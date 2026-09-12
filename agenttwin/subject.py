@@ -40,14 +40,22 @@ class Subject:
     what the customer reads; whatever typed result produced it is the
     implementation's own business."""
 
-    reviewer: Callable[[str, str], Offstage] | None = None
-    """`(decision, by) -> an approver`, where decision is grant · refuse · never.
+    reviewer: Callable[[str, str, int], Offstage] | None = None
+    """`(decision, by, delay_s) -> an approver`, where decision is grant · refuse
+    · never and `delay_s` is how long this reviewer takes before deciding.
     `None` says this implementation has no approval queue — which is a legitimate
     shape, and a scenario that needs one will fail loudly rather than silently
-    passing against an agent that cannot approve anything."""
+    passing against an agent that cannot approve anything.
 
-    colleague: Callable[[str, str], Offstage] | None = None
-    """`(resolution, by) -> a desk`. `None` says no escalation desk."""
+    **`delay_s` is the third argument because a reviewer who is instantaneous is
+    not a reviewer.** It arrived late: `after_turns` sat in the scenario format,
+    documented, for as long as the format existed, and no runner read it — so
+    every scenario that said *the reviewer comes after two turns* got one who
+    came immediately, and the approval window could never close on anybody
+    (F-036)."""
+
+    colleague: Callable[[str, str, int], Offstage] | None = None
+    """`(resolution, by, delay_s) -> a desk`. `None` says no escalation desk."""
 
 
 __all__ = ["Offstage", "Subject"]

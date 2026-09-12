@@ -51,6 +51,16 @@ class Decision(StrEnum):
     DENY = "deny"
     SILENCE = "silence"
     """Never answers. Not a failure to configure — a reviewer who went home."""
+    GRANT_TWICE = "grant-twice"
+    """Grants, and then comes back and grants the same thing again.
+
+    Two people in a queue both picking up the same item, or one person clicking
+    approve twice on a page that did not visibly change. Neither is exotic; both
+    are what an approval queue looks like on a busy afternoon.
+
+    The reason it earns a vocabulary entry of its own is what it costs when it
+    works: a grant that can be re-granted is a grant that can be executed twice,
+    and the effect behind this particular gate is money leaving the business."""
 
 
 @dataclass(frozen=True)
@@ -102,6 +112,10 @@ class Approver:
     def silent(cls, store, decide, **kw) -> Approver:
         return cls(store=store, decide=decide, decision=Decision.SILENCE, **kw)
 
+    @classmethod
+    def grants_twice(cls, store, decide, **kw) -> Approver:
+        return cls(store=store, decide=decide, decision=Decision.GRANT_TWICE, **kw)
+
     async def review(self, *, at: int | None = None) -> tuple[Review, ...]:
         """Look at the queue once, and decide whatever is due.
 
@@ -115,6 +129,14 @@ class Approver:
         outcomes: list[Review] = []
         for approval in pending:
             outcomes.append(await self._look_at(approval, moment))
+        # The second decision, on something that has already left the queue.
+        # Deliberately after the queue pass and against an id this reviewer
+        # granted itself, because that is the honest shape of it: nobody
+        # re-decides an approval they have never seen.
+        if self.decision is Decision.GRANT_TWICE:
+            again = [r.approval_id for r in self.reviewed if r.outcome == "granted"]
+            if again:
+                outcomes.append(await self._decide(again[0], granted=True, moment=moment))
         self.reviewed.extend(outcomes)
         return tuple(outcomes)
 
@@ -124,16 +146,20 @@ class Approver:
         if moment < approval.created_at + self.delay_s:
             return Review(approval.id, "waiting", f"reviewer takes {self.delay_s}s")
 
-        granted = self.decision is Decision.GRANT
+        granted = self.decision in (Decision.GRANT, Decision.GRANT_TWICE)
+        return await self._decide(approval.id, granted=granted, moment=moment)
+
+    async def _decide(self, approval_id: str, *, granted: bool, moment: int) -> Review:
         try:
-            await self.decide(self.store, approval.id, granted=granted, by=self.name, now=moment)
+            await self.decide(self.store, approval_id, granted=granted, by=self.name, now=moment)
         except Exception as refused:  # noqa: BLE001
             # The queue's rules belong to the agent, not to its simulator, so the
             # exception type is deliberately not imported. A reviewer who is told
-            # "too late" experiences a refusal, not a type.
-            return Review(approval.id, "refused", str(refused))
+            # "too late", or "that is already decided", experiences a refusal and
+            # not a type.
+            return Review(approval_id, "refused", str(refused))
 
-        return Review(approval.id, "granted" if granted else "denied")
+        return Review(approval_id, "granted" if granted else "denied")
 
 
 __all__ = ["Approver", "Decision", "Review"]
