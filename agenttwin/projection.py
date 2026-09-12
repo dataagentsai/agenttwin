@@ -32,7 +32,7 @@ from typing import Any
 
 from mcp.server.mcpserver import Context, MCPServer
 
-from agenttwin.world import Action, World
+from agenttwin.world import Action, Input, World
 
 SESSION_META = "aoas/session"
 """Where a caller presents its session in a call's `_meta`. A binding between
@@ -125,13 +125,15 @@ def _register(srv: MCPServer, live: Live, action_name: str, action: Action, wrap
         if action.side_effect == "read":
             return {"found": True, **row}
 
+        given = {i.name: arguments.get(i.name) for i in action.inputs}
+
         # The far end of F-017. The harness's ledger only knows what it saw
         # succeed; when the effect lands and the reply is lost, only the system
         # that applied it can recognise the retry.
         key = _idempotency_key(ctx)
         if key is not None and key in live.answered:
             return copy.deepcopy(live.answered[key])
-        answer = _apply(live, action_name, action, row)
+        answer = _apply(live, action_name, action, row, given)
         if key is not None:
             live.answered[key] = copy.deepcopy(answer)
         return answer
@@ -139,7 +141,7 @@ def _register(srv: MCPServer, live: Live, action_name: str, action: Action, wrap
     handler.__name__ = action_name
     handler.__doc__ = action.description or action_name
 
-    typed = _typed(handler, key_field)
+    typed = _typed(handler, key_field, action.inputs)
     srv.tool(
         name=action_name,
         description=action.description or action_name,
@@ -151,7 +153,9 @@ def _register(srv: MCPServer, live: Live, action_name: str, action: Action, wrap
     )(typed if wrap is None else wrap(action_name, typed))
 
 
-def _apply(live: Live, action_name: str, action: Action, row: dict) -> dict[str, Any]:
+def _apply(
+    live: Live, action_name: str, action: Action, row: dict, given: dict[str, Any]
+) -> dict[str, Any]:
     """Evaluate the action's conditions against the row, and apply it if allowed.
 
     A refusal is a *result*, not an error: the model is expected to explain it to
@@ -162,6 +166,9 @@ def _apply(live: Live, action_name: str, action: Action, row: dict) -> dict[str,
     if not allowed:
         return {"allowed": False, "reason": reason, **row}
     row.update(action.sets)
+    # An effect the spec writes from an input — `{address: $address}`. The value
+    # is the caller's; the field it lands in is the spec's.
+    row.update({field: given[name] for field, name in action.sets_from_input.items()})
     live.effects.append((action_name, str(row[live.world.entities[action.entity].key])))
     return {"allowed": True, "reason": "allowed", **row}
 
@@ -186,7 +193,10 @@ def _session(ctx: Context | None) -> dict[str, object] | None:
     return session if isinstance(session, dict) else None
 
 
-def _typed(handler, key_field: str):
+ANNOTATIONS: dict[str, type] = {"str": str, "int": int, "float": float, "bool": bool}
+
+
+def _typed(handler, key_field: str, inputs: tuple[Input, ...] = ()):
     """Give the handler a signature and annotations MCP can build a schema from.
 
     The SDK derives `inputSchema` from the function signature and `outputSchema`
@@ -198,16 +208,24 @@ def _typed(handler, key_field: str):
     """
     import inspect
 
-    # The key is the only input a projected tool takes. The spec's other inputs
-    # are the agent's to supply and its `amount_from`-style fields the system's
-    # to read from its own row — which is why a refund takes no amount (E3, F-014).
+    # The key, then whatever else the spec declares this operation takes. What
+    # the system reads from its own row is never a parameter — which is why a
+    # refund takes no amount (E3, F-014) and a change of address takes one.
+    declared = [
+        inspect.Parameter(
+            i.name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=ANNOTATIONS[i.type]
+        )
+        for i in inputs
+    ]
     params = [
         inspect.Parameter(key_field, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=str),
+        *declared,
         inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context, default=None),
     ]
     handler.__signature__ = inspect.Signature(params, return_annotation=dict[str, Any])
     handler.__annotations__ = {
         key_field: str,
+        **{i.name: ANNOTATIONS[i.type] for i in inputs},
         "ctx": Context,
         "return": dict[str, Any],
     }

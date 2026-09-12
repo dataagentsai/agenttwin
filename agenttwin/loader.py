@@ -46,6 +46,7 @@ from agenttwin.world import (
     Entity,
     Fidelity,
     Field_,
+    Input,
     Invariant,
     Resolution,
     SessionCondition,
@@ -199,17 +200,23 @@ def compose(wf: WorldFile, doc: dict) -> World:
             allowed, owner = _conditions(op.get("preconditions", ()), op["entity"], miss)
             required, _ = _conditions(op.get("owed_when", ()), op["entity"], miss)
 
+            inputs = _inputs(op.get("input", ()), op["entity"], entities[op["entity"]])
+            declared = {i.name for i in inputs}
+
             sets: dict[str, Any] = {}
+            from_input: dict[str, str] = {}
             effect = op.get("effect")
             if isinstance(effect, dict):
                 for field, value in effect.items():
-                    if isinstance(value, str) and value.startswith("$"):
+                    if not (isinstance(value, str) and value.startswith("$")):
+                        sets[field] = value
+                    elif value[1:] in declared:
+                        from_input[field] = value[1:]
+                    else:
                         miss(
                             f"sets {field} from input {value}",
-                            "the projection carries no operation input beyond the key",
+                            f"{value[1:]!r} is not one of this operation's declared inputs",
                         )
-                    else:
-                        sets[field] = value
 
             shown = s.presents.get(op_name, Presentation())
             actions[op_name] = Action(
@@ -219,7 +226,9 @@ def compose(wf: WorldFile, doc: dict) -> World:
                 allowed_when=allowed,
                 session_when=owner,
                 required_when=required,
+                inputs=inputs,
                 sets=sets,
+                sets_from_input=from_input,
                 description=shown.description,
                 **({"refusal": shown.refusal} if shown.refusal is not None else {}),
             )
@@ -268,6 +277,32 @@ def _local(condition: dict, entity: str) -> dict:
     if rest and prefix == entity:
         c["field"] = rest
     return c
+
+
+TYPES = {"int": "int", "money": "int", "number": "float", "bool": "bool"}
+"""A spec field's type, as the type a projected tool's parameter takes. Anything
+else — text, id, email, a date — crosses as a string."""
+
+
+def _inputs(names, entity_name: str, entity: Entity) -> tuple[Input, ...]:
+    """The operation's inputs, minus the one naming the row it acts on.
+
+    The key arrives as the tool's first parameter under the entity's own name for
+    it, so an input named `<entity>_<key>` is that parameter and not a second one
+    — the convention the agent's own argument binding already speaks.
+
+    Every other input is typed from the field it shares a name with, and from
+    nothing when it shares a name with none — a spec may take an input the entity
+    does not store.
+    """
+    key_names = {entity.key, f"{entity_name}_{entity.key}"}
+    kept = []
+    for name in names:
+        if name in key_names:
+            continue
+        field = entity.fields.get(name)
+        kept.append(Input(name=name, type=TYPES.get(field.type, "str") if field else "str"))
+    return tuple(kept)
 
 
 def _conditions(

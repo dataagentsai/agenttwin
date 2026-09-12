@@ -55,10 +55,17 @@ are beyond any world, and each is **reported, never dropped**:
 | Statement | Why no world can enforce it |
 |---|---|
 | A condition over another entity's field | A system checks the row it is asked about |
-| An effect that writes an operation input (`$name`) | The projection carries no input beyond the key |
+| An effect that writes an input the operation does not declare | There is no value to write |
 
 The composed world lists them as `unenforced`. A statement a world silently
 skipped would read, in every run against it, as a statement that held.
+
+**A declared input is carried.** A projected tool takes its entity's key and
+whatever else the operation declares, so an effect written from an input —
+`{address: $address}` — lands. Until 12 September 2026 the key was the only
+input any projected tool took: `change_address` accepted an order, changed
+nothing, and the statement sat in the unenforced list. Both reference worlds now
+have an empty one.
 
 **A comparison with the session is enforced.** The caller presents its session
 in the call's `_meta` under `aoas/session` — a binding the agent's transport and

@@ -266,14 +266,27 @@ def test_composition(tmp_path: Path) -> None:
     )
 
 
-def test_what_a_world_cannot_enforce_is_said_not_skipped(tmp_path: Path) -> None:
-    world = load(write(tmp_path, SPEC, WORLD))
+def test_an_effect_written_from_a_declared_input_is_enforced(tmp_path: Path) -> None:
+    """`{due_note: $note}` with `note` among the operation's inputs. The stand-in
+    takes the input and writes what it was given — a world that carried only the
+    key could not, so the operation changed nothing."""
+    action = load(write(tmp_path, SPEC, WORLD)).systems["catalogue"].actions["note_due_date"]
+    assert [(i.name, i.type) for i in action.inputs] == [("note", "str")]
+    assert action.sets_from_input == {"due_note": "note"}
+    assert action.sets == {}, "never the literal '$note'"
+
+
+def test_an_effect_from_an_input_nobody_declared_is_said_not_skipped(tmp_path: Path) -> None:
+    """The statement no world can enforce: an effect naming an input the
+    operation does not take. Reported, never dropped — silently skipping it would
+    read, in every run, as a statement that held."""
+    spec = copy.deepcopy(SPEC)
+    spec["operations"]["note_due_date"]["effect"] = {"due_note": "$missing"}
+    world = load(write(tmp_path, spec, WORLD))
     assert sorted((u.operation, u.reason) for u in world.unenforced) == [
-        ("note_due_date", "the projection carries no operation input beyond the key"),
+        ("note_due_date", "'missing' is not one of this operation's declared inputs"),
     ]
-    assert world.systems["catalogue"].actions["note_due_date"].sets == {}, (
-        "never the literal '$note'"
-    )
+    assert world.systems["catalogue"].actions["note_due_date"].sets == {}
 
 
 def test_a_variant_is_its_base_plus_a_merge_patch(tmp_path: Path) -> None:

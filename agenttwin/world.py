@@ -204,6 +204,20 @@ class Invariant(BaseModel):
 Entity.model_rebuild()  # `Entity.invariants` forward-references `Invariant`
 
 
+class Input(BaseModel):
+    """One input a projected tool takes beyond the key it acts on.
+
+    The spec declares an operation's inputs; a stand-in that carried only the key
+    could not apply an effect written from one — `change_address` took an order
+    and changed nothing, and the address the customer gave went nowhere.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    type: Literal["str", "int", "float", "bool"] = "str"
+
+
 class Action(BaseModel):
     """A tool the world exposes, and when it is allowed.
 
@@ -235,6 +249,9 @@ class Action(BaseModel):
     bounds check all pass. The failure with no evidence needs the world to say
     what was owed, because nothing else in the system knows.
     """
+    inputs: tuple[Input, ...] = ()
+    """Beyond the key. The spec's declared inputs for this operation, minus the
+    one that names the row it acts on."""
     sets: dict[str, Any] = Field(default_factory=dict)
     refusal: str = "that is not possible in its current state"
     """The default names no entity. The format cannot know the domain, and a
@@ -243,6 +260,11 @@ class Action(BaseModel):
 
     def visible_to(self, row: dict, session: Mapping[str, object] | None) -> bool:
         return all(c.holds(row, session) for c in self.session_when)
+
+    sets_from_input: dict[str, str] = Field(default_factory=dict)
+    """Field → the input whose value it takes. The spec writes these `$name`;
+    only a declared input can fill one, and an effect naming anything else stays
+    unenforced rather than silently doing nothing."""
 
     def evaluate(self, row: dict) -> tuple[bool, str]:
         for condition in self.allowed_when:
@@ -334,6 +356,7 @@ __all__ = [
     "Entity",
     "Fidelity",
     "Field_",
+    "Input",
     "Invariant",
     "Resolution",
     "SessionCondition",
