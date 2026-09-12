@@ -9,6 +9,7 @@ system whose test results mean nothing.
 
 from agenttwin.actor import Determinism, Rule, ScriptedActor, StateMachineActor, Transcript
 from agenttwin.approver import Approver, Decision, Review
+from agenttwin.checks import Check, Outcome
 from agenttwin.desk import Answer, Desk, Handled
 from agenttwin.loader import load
 from agenttwin.omission import Obligation, nothing_was_omitted, omitted, owed
@@ -17,11 +18,21 @@ from agenttwin.projection import Live, project
 from agenttwin.record import RunRecord, diff
 from agenttwin.scenario import Clock, Scenario
 from agenttwin.scenario import run as run_scenario
+from agenttwin.scenario_file import ScenarioFile, load_scenario
+from agenttwin.subject import Subject
+from agenttwin.suite import Unrunnable, run_file
 from agenttwin.truth import Contradiction, answer_is_true, contradictions
 from agenttwin.world import World
 
 __all__ = [
     "Approver",
+    "Check",
+    "Outcome",
+    "ScenarioFile",
+    "Subject",
+    "Unrunnable",
+    "load_scenario",
+    "run_file",
     "ChannelError",
     "Clock",
     "Contradiction",
