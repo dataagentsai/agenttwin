@@ -65,6 +65,25 @@ class ActorFile(BaseModel):
     max_turns: int = 6
 
 
+Concern = Literal[
+    "functional-suitability",
+    "performance-efficiency",
+    "compatibility",
+    "interaction-capability",
+    "reliability",
+    "security",
+    "maintainability",
+    "flexibility",
+    "safety",
+    "cost",
+]
+"""The nine quality characteristics of ISO/IEC 25010:2023, plus `cost` — which
+25010 has no characteristic for and which is the property an agent is most
+likely to fail silently. Cited, not invented, and spelled the same here as in
+the assurance catalog, the harness catalog and an AOAS: the Concern View joins
+every artifact in the family on this string."""
+
+
 class ApproverFile(BaseModel):
     """The offstage reviewer. Acts on the queue between turns, never speaks."""
 
@@ -185,6 +204,14 @@ class ScenarioFile(BaseModel):
     """The customer this run acts as — a record the world declares, never an
     identity or a scope, which are the binding's business."""
     objective: str = ""
+    concern: Concern | None = None
+    """Which kind of quality this scenario is about — the family-wide axis (Spec
+    Charter §3): the nine characteristics of ISO/IEC 25010:2023 plus `cost`.
+
+    Optional, and the only tag in this format that is. A scenario usually
+    exercises several statements at once and inherits their concerns, so
+    declaring one here says *this scenario exists for* — which is worth saying
+    when it is not obvious from what it discharges, and noise when it is."""
     discharges: tuple[str, ...] = ()
     max_turns: int = 6
     step_seconds: int = 3600
