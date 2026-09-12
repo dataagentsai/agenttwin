@@ -144,8 +144,15 @@ class ScenarioFile(BaseModel):
     discharges: tuple[str, ...] = ()
     max_turns: int = 6
     step_seconds: int = 3600
-    """How much time passes per turn. "The reviewer took an hour" is a property
-    of the scenario, not of how slow the machine was."""
+    """How much time passes per turn, for the offstage humans. "The reviewer took
+    an hour" is a property of the scenario, not of how slow the machine was."""
+    step_days: int = 0
+    """How much time passes **in the world** per turn.
+
+    Separate from `step_seconds` because they answer to different clocks: the
+    harness's expiry windows are minutes and hours, while a return window is
+    days, and a scenario that needed both would otherwise have to choose. Zero
+    means the world is frozen, which is every scenario that is not about time."""
     actor: ActorFile = ActorFile()
     approver: ApproverFile | None = None
     desk: DeskFile | None = None

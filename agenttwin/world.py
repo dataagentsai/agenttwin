@@ -77,6 +77,25 @@ class Field_(BaseModel):
     you identity, and identity is what makes two systems' rows the same row.
     """
 
+    advances: Literal["days"] | None = None
+    """A counter that runs with world time.
+
+    Without it a world is frozen: `days_since_delivery` is whatever was seeded
+    and a return window can never close mid-conversation, so the one rule this
+    agent argues about most is the one no simulation can reach. A scenario that
+    advances the world by days advances every field declared here.
+    """
+
+    advances_when: Condition | None = None
+    """When the counter runs — because most of them do not always.
+
+    An order that has not been delivered is not *n* days since delivery; it has
+    no age at all. Advancing it anyway produces a row the world declares
+    impossible, and the invariant that says so is usually already written: this
+    is that same condition, pointed forwards. Absent means the counter always
+    runs.
+    """
+
 
 class Entity(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -141,6 +160,9 @@ class SessionCondition(BaseModel):
         if session is None or session.get(self.session) is None:
             return False
         return row.get(self.field) == session.get(self.session)
+
+
+Field_.model_rebuild()  # `advances_when` is a Condition, declared below it
 
 
 class Invariant(BaseModel):

@@ -243,7 +243,14 @@ def _entity(name: str, spec: dict, machines: dict) -> Entity:
     fields = {}
     for fn, f in spec["fields"].items():
         values = f.get("values") or machines.get(f.get("of"), {}).get("states", ())
-        fields[fn] = Field_(type=f["type"], values=tuple(values), ref=f.get("ref"))
+        when = f.get("advances_when")
+        fields[fn] = Field_(
+            type=f["type"],
+            values=tuple(values),
+            ref=f.get("ref"),
+            advances=f.get("advances"),
+            advances_when=Condition(**_local(when, name)) if when else None,
+        )
     invariants = tuple(
         Invariant(
             name=i["name"],

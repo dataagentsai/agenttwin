@@ -48,6 +48,10 @@ META_SIDE_EFFECT = "side_effect"
 META_REQUIRED_SCOPE = "required_scope"
 
 
+class IncoherentWorld(Exception):
+    """Time moved the world somewhere it declared it could not be."""
+
+
 @dataclass
 class Live:
     """The world as it is *now* — mutated by whatever the agent does.
@@ -80,6 +84,46 @@ class Live:
 
     def count(self, action: str) -> int:
         return sum(1 for a, _ in self.effects if a == action)
+
+    def advance(self, days: int) -> tuple[str, ...]:
+        """Move the world's clock, and every counter that runs with it.
+
+        Without this a world is frozen: a return window can never close while a
+        customer is still talking, so the rule this agent argues about most is
+        the one no simulation could reach. The counters that move are the ones
+        the specification declared `advances: days`, and each moves only where
+        its `advances_when` holds — an order nobody delivered is not *n* days
+        since delivery, it has no age at all.
+
+        Returns what moved, because a scenario that advanced time and changed
+        nothing did not test what it thought.
+        """
+        moved: list[str] = []
+        for name, entity in self.world.entities.items():
+            counters = [
+                (field_name, spec)
+                for field_name, spec in entity.fields.items()
+                if spec.advances == "days"
+            ]
+            if not counters:
+                continue
+            for key, row in self.rows.get(name, {}).items():
+                for field_name, spec in counters:
+                    if spec.advances_when is not None and not spec.advances_when.holds(row):
+                        continue
+                    row[field_name] = int(row.get(field_name, 0)) + days
+                    moved.append(f"{name}.{key}.{field_name}")
+                # A world that advanced into a state it declared impossible is a
+                # broken scenario reading as a finding about the agent — the
+                # same failure `StaleRead` refuses, at the fourth place a world
+                # can move.
+                broken = entity.violations(row)
+                if broken:
+                    raise IncoherentWorld(
+                        f"advancing {days} day(s) put {name} {key} in a state it declared "
+                        f"impossible — {broken[0].name!r}: {broken[0].because}"
+                    )
+        return tuple(moved)
 
 
 class UnknownRecord(Exception):

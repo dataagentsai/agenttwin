@@ -137,6 +137,8 @@ async def run_file(
             break
         reply, conversation = await subject.say(said, scenario.as_, conversation)
         transcript.add(said, reply)
+        if scenario.step_days:
+            world.advance(scenario.step_days)
         if reviewer is not None or colleague is not None:
             moment = tick()
             if reviewer is not None:
