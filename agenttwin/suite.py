@@ -175,6 +175,7 @@ async def run_file(
     live: Live | None = None,
     timeline: Timeline | None = None,
     voice=None,
+    clock: Clock | None = None,
 ) -> tuple[RunRecord, tuple[Outcome, ...]]:
     """Drive one declared scenario and answer every check it makes."""
     scenario = load_scenario(path)
@@ -194,7 +195,11 @@ async def run_file(
     world_0 = world.snapshot()
     actor = actor_for(scenario, voice)
     transcript = Transcript()
-    tick = Clock(step_s=scenario.step_seconds)
+    # **The same clock the implementation was built with**, or time means two
+    # different things in one run: the offstage humans would review at a moment
+    # the agent has not reached, and every escalation would have lapsed before
+    # anybody came. Pass the clock to both, or to neither.
+    tick = clock or Clock(step_s=scenario.step_seconds)
     conversation: object = None
     reply = ""
 
@@ -208,8 +213,10 @@ async def run_file(
         transcript.add(said, reply)
         if scenario.step_days:
             world.advance(scenario.step_days)
+        if reviewer is None and colleague is None:
+            tick.tick()  # time passes whether or not anybody is offstage to notice
         if reviewer is not None or colleague is not None:
-            moment = tick()
+            moment = tick.tick()
             if reviewer is not None:
                 await reviewer.review(at=moment)
             if colleague is not None:

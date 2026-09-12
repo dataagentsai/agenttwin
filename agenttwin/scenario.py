@@ -26,9 +26,16 @@ class Clock:
     """Wall time that advances in declared steps rather than by elapsing.
 
     Starts from the real clock, because the queue stamps approvals with it, and
-    then moves by a fixed step per turn. So *"the reviewer took an hour"* is a
-    property of the scenario and not of how slow the machine was — and a run
+    then moves by a fixed step **per turn**. So *"the reviewer took an hour"* is
+    a property of the scenario and not of how slow the machine was — and a run
     that passes on a fast laptop passes in CI.
+
+    **Reading it does not move it.** It used to advance on every call, which is
+    unusable the moment the clock is shared: the agent reads the time several
+    times a turn — minting an approval, checking a hold, stamping an escalation —
+    and each read pushed the world further into the future, so an offstage
+    reviewer arrived after windows that had expired while the agent was thinking
+    (F-033). One `tick()` per turn moves it; everybody else asks what time it is.
     """
 
     def __init__(self, *, start: int | None = None, step_s: int = 3600) -> None:
@@ -36,6 +43,11 @@ class Clock:
         self.step_s = step_s
 
     def __call__(self) -> int:
+        """What time it is. Idempotent, because a reader is not an event."""
+        return self.now
+
+    def tick(self) -> int:
+        """A turn has passed. The only thing that moves time."""
         self.now += self.step_s
         return self.now
 
@@ -98,7 +110,7 @@ async def run(
         # must experience the same moment, or a scenario's "an hour passed"
         # would mean two hours the moment a second reviewer joined it.
         if approver is not None or desk is not None:
-            moment = tick()
+            moment = tick.tick() if isinstance(tick, Clock) else tick()
             if approver is not None:
                 await approver.review(at=moment)
             if desk is not None:
