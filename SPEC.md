@@ -88,6 +88,55 @@ is the far end a harness-side ledger cannot reach: when an effect lands and its
 reply is lost, only the system that applied it can tell the retry from a second
 request (F-017).
 
+## Declared, never inferred — and what that buys
+
+A world is told what is true; it infers nothing. Every question a data generator
+would have to guess at is answered in the specification, and the loader **refuses
+a world that disagrees with it**:
+
+| The question | Where it is answered | What happens when a world disagrees |
+|---|---|---|
+| What joins to what | `ref: customer.id` on the field, flattened by `World.ontology()` | a row pointing at a record that does not exist fails at load, not when a scenario asks |
+| Which values a column may hold | `type: enum` with `values`, or `of:` a state machine's states | a seeded value outside the set fails at load, naming the set it violated |
+| Which of those values *matter* | the conditions' own bounds — `at_most: 30` says 0, 30 and 31 are the interesting ones | nothing: the generator asks the world what to vary rather than being told |
+| Which rows could not exist at all | `invariants`, each with its `because` | the row is refused, quoting the rule and the reason |
+
+The third row is the one worth dwelling on. **The declaration is not
+documentation of a test space — it is the test space.** A condition carries its
+own boundaries, so cases are derived from the rules rather than sampled around
+them, and a world declaring a sixty-day return window is tested at sixty and
+sixty-one without anybody editing a fixture.
+
+The fourth row is what separates *well-typed* from *possible*. When invariants
+arrived, the reference's golden set went from 29 cases to **26**: smaller, and
+better, because three of them described situations that cannot occur, and a
+verdict about an impossible situation is worse than no verdict.
+
+**Where this is weak, stated plainly.** A declared world is small and clean. Real
+estates have volume, skew, dirty long tails and rows that exist because of a
+migration nobody remembers. `fidelity.not_faithful_about` is honesty about that
+rather than a solution to it, and `shadow` — call the real system, serve the
+mock, diff the two — is the designed answer and is not built.
+
+## What this is not, and what to use instead
+
+The surrounding tools solve neighbouring problems well, and a world is not an
+attempt to replace them:
+
+| Want | Use |
+|---|---|
+| A believable customer with a persona and a temper | a simulated-user framework. AgentTwin's actors are deliberately thin, and a model-driven one is a declared seam rather than a built thing |
+| Ten thousand rows with real distributions | a relational synthetic-data generator. Those learn from real data; a world is what you have **before** there is real data to learn from, which is the situation every new agent starts in |
+| Hundreds of injection or jailbreak cases | an adversarial corpus. Generating them is not a world's job; *running* them against a world that refuses correctly is |
+| Tracing, datasets, prompt history | an observability platform |
+
+**What a world is for, that none of those do: a stand-in that enforces the
+domain's own preconditions and refuses the way the real system would, and
+oracles that read state rather than asking a model.** That is why the omission
+oracle can report *a refund was owed and never issued* — nothing changed,
+nothing untrue was said, every bound was respected, and a judge scoring the
+transcript would pass it. Only a world that declared `owed_when` can see it.
+
 ## Variants
 
 A world for a different store of the same agent cites a different spec. That
