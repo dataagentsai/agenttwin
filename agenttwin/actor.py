@@ -147,21 +147,37 @@ class StateMachineActor:
 
 
 class ModelActor:
-    """A model plays the customer.
+    """A model plays the customer, under a persona.
 
-    Not built. The seam is declared so a scenario can say what it would cost:
-    a call per turn, and a run that cannot be replayed. Worth having when the
-    question is "what would somebody actually say", and never worth having in a
-    regression suite.
+    Trades replay for realism, and the run record says so — a reader must never
+    have to guess whether a result can be reproduced. Worth having when the
+    question is *what would somebody actually say*; never worth having in a
+    regression suite, where the same question twice must mean the same thing.
+
+    **The voice is injected**, for the same reason the approver's decision
+    function is: this package cannot see the agent's provider adapter, and a
+    simulator that imported one would simulate one stack. The binding supplies
+    `speak(brief, heard) -> said`.
     """
 
     determinism = Determinism.MODEL_DRIVEN
 
-    def __init__(self, *_: object, **__: object) -> None:
-        raise NotImplementedError(
-            "a model-driven actor trades replay for realism; build it when a "
-            "scenario needs unscripted phrasing, not for a regression suite"
-        )
+    def __init__(self, brief: str, speak, *, max_turns: int = 6) -> None:
+        self.brief = brief
+        self.speak = speak
+        self.max_turns = max_turns
+        self.said: list[str] = []
+
+    async def next(self, reply: str) -> str | None:
+        """Async, unlike its scripted siblings, because a provider is. The runner
+        awaits whatever an actor hands back, so the cheap actors stay cheap."""
+        if len(self.said) >= self.max_turns:
+            return None
+        said = (await self.speak(self.brief, reply)).strip()
+        if not said:
+            return None
+        self.said.append(said)
+        return said
 
 
 @dataclass

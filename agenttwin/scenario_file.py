@@ -49,8 +49,16 @@ class ActorFile(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    kind: Literal["scripted", "state_machine"] = "scripted"
+    kind: Literal["scripted", "state_machine", "model"] = "scripted"
     says: tuple[str, ...] = ()
+    persona: str = "plain"
+    """`model` only: how this customer behaves, from the catalogue. The
+    behaviour is universal and lives there; what they want is `situation`
+    below, which is this scenario's."""
+    situation: str = ""
+    """`model` only: what this customer is trying to do, in their own terms and
+    never in the agent's. A situation naming a tool is a scenario telling the
+    customer how the system works."""
     opening: str = ""
     rules: tuple[dict[str, str], ...] = ()
     persistence: str = ""

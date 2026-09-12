@@ -65,6 +65,11 @@ class RunRecord:
     discharges: tuple[str, ...] = ()
     reply: str = ""
     termination: str = ""
+    transcript: tuple[tuple[str, str], ...] = ()
+    """Said and heard, in order. Kept because a run nobody can reproduce is only
+    worth anything if a reader can see what actually happened in it — for a
+    scripted run the transcript is in the scenario file, and for a model-driven
+    one it is the entire finding."""
 
     @property
     def passed(self) -> bool:

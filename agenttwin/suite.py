@@ -8,12 +8,21 @@ domain, and the only thing that changes is who builds the `Subject`.
 
 from __future__ import annotations
 
+import inspect
 import re
 from pathlib import Path
 
-from agenttwin.actor import Determinism, Rule, ScriptedActor, StateMachineActor, Transcript
+from agenttwin.actor import (
+    Determinism,
+    ModelActor,
+    Rule,
+    ScriptedActor,
+    StateMachineActor,
+    Transcript,
+)
 from agenttwin.checks import Outcome
 from agenttwin.loader import load
+from agenttwin.personas import brief_for
 from agenttwin.perturbation import ChannelError, Slow, StaleRead, Timeline
 from agenttwin.projection import Live
 from agenttwin.record import RunRecord, diff
@@ -32,8 +41,25 @@ class Unrunnable(Exception):
     """
 
 
-def actor_for(scenario: ScenarioFile):
+def actor_for(scenario: ScenarioFile, voice=None):
+    """The customer this scenario declares.
+
+    A model-driven one needs a `voice` — `(brief, heard) -> said` — which only
+    the binding can supply, because only it has a provider. Asking for one and
+    being given none is `Unrunnable` rather than a failure: the scenario is fine
+    and this caller cannot run it.
+    """
     declared = scenario.actor
+    if declared.kind == "model":
+        if voice is None:
+            raise Unrunnable(
+                f"{scenario.scenario}: needs a model-driven customer and no voice was supplied"
+            )
+        return ModelActor(
+            brief_for(declared.persona, declared.situation or scenario.objective),
+            voice,
+            max_turns=scenario.max_turns,
+        )
     if declared.kind == "scripted":
         return ScriptedActor(list(declared.says))
     return StateMachineActor(
@@ -108,6 +134,7 @@ async def run_file(
     subject: Subject,
     live: Live | None = None,
     timeline: Timeline | None = None,
+    voice=None,
 ) -> tuple[RunRecord, tuple[Outcome, ...]]:
     """Drive one declared scenario and answer every check it makes."""
     scenario = load_scenario(path)
@@ -125,7 +152,7 @@ async def run_file(
         colleague = subject.colleague(scenario.desk.resolves, scenario.desk.by)
 
     world_0 = world.snapshot()
-    actor = actor_for(scenario)
+    actor = actor_for(scenario, voice)
     transcript = Transcript()
     tick = Clock(step_s=scenario.step_seconds)
     conversation: object = None
@@ -133,6 +160,8 @@ async def run_file(
 
     for _ in range(scenario.max_turns):
         said = actor.next(reply)
+        if inspect.isawaitable(said):
+            said = await said
         if said is None:
             break
         reply, conversation = await subject.say(said, scenario.as_, conversation)
@@ -171,6 +200,7 @@ async def run_file(
         effects=tuple(world.effects),
         discharges=scenario.discharges,
         reply=reply,
+        transcript=tuple((turn.said, turn.heard) for turn in transcript.turns),
         verdicts={o.check: o.passed for o in outcomes},
     )
     return record, outcomes
