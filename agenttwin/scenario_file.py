@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agenttwin.checks import Check
 
@@ -86,8 +86,17 @@ class PerturbationFile(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    kind: Literal["stale_read", "slow", "channel_error"]
-    tool: str
+    kind: Literal[
+        "stale_read",
+        "slow",
+        "channel_error",
+        "provider_throttled",
+        "provider_unavailable",
+        "provider_malformed",
+    ]
+    tool: str = ""
+    """The tool this fault lands on. Empty for the three `provider_*` kinds,
+    which land on the model channel instead."""
     at_call: int = 1
 
     entity: str = "order"
@@ -102,6 +111,23 @@ class PerturbationFile(BaseModel):
 
     seconds: float = 0.05
     """`slow` only. A window opener, never a latency measurement."""
+
+    retry_after: float | None = None
+    """`provider_throttled` only: what the provider says about coming back.
+
+    **The model provider is an external system the agent depends on**, so a
+    world must be able to misbehave as it — throttling, an outage, output that
+    does not parse. Declared here by *kind* and never by exception type: which
+    error a throttle becomes is the binding's, exactly as a scope name is."""
+
+    @model_validator(mode="after")
+    def _tool_where_a_tool_is_meant(self) -> PerturbationFile:
+        on_provider = self.kind.startswith("provider_")
+        if on_provider and self.tool:
+            raise ValueError(f"{self.kind} lands on the model, not on {self.tool!r}")
+        if not on_provider and not self.tool:
+            raise ValueError(f"{self.kind} needs the tool it lands on")
+        return self
 
 
 class ScenarioFile(BaseModel):

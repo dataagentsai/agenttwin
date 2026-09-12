@@ -47,6 +47,24 @@ def actor_for(scenario: ScenarioFile):
     )
 
 
+PROVIDER_KINDS = ("provider_throttled", "provider_unavailable", "provider_malformed")
+
+
+def provider_faults(scenario: ScenarioFile) -> tuple[tuple[int, str, float | None], ...]:
+    """The faults a scenario schedules on the **model channel**, as data.
+
+    `(call number, kind, retry_after)`. Deliberately not objects and deliberately
+    not exceptions: this package cannot see the agent's types, and a simulator
+    that imported them would simulate one agent. The binding maps a kind onto
+    whatever its own provider adapter raises.
+    """
+    return tuple(
+        (p.at_call, p.kind, p.retry_after)
+        for p in scenario.perturbations
+        if p.kind in PROVIDER_KINDS
+    )
+
+
 def timeline_for(scenario: ScenarioFile) -> Timeline:
     """The faults a scenario schedules, built from what it declared.
 
@@ -56,6 +74,8 @@ def timeline_for(scenario: ScenarioFile) -> Timeline:
     """
     faults = []
     for declared in scenario.perturbations:
+        if declared.kind in PROVIDER_KINDS:
+            continue  # the model channel is not the tool channel
         if declared.kind == "stale_read":
             faults.append(
                 StaleRead(
