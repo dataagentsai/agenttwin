@@ -130,6 +130,7 @@ class PerturbationFile(BaseModel):
         "stale_read",
         "slow",
         "channel_error",
+        "lost_reply",
         "provider_throttled",
         "provider_unavailable",
         "provider_malformed",

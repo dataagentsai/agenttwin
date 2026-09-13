@@ -24,7 +24,7 @@ from agenttwin.attacks import cases
 from agenttwin.checks import Outcome
 from agenttwin.loader import load
 from agenttwin.personas import brief_for
-from agenttwin.perturbation import ChannelError, Slow, StaleRead, Timeline
+from agenttwin.perturbation import ChannelError, LostReply, Slow, StaleRead, Timeline
 from agenttwin.projection import Live
 from agenttwin.record import RunRecord, diff
 from agenttwin.scenario import Clock
@@ -150,6 +150,14 @@ def timeline_for(scenario: ScenarioFile) -> Timeline:
                     entity=declared.entity,
                     key=declared.key,
                     sets=dict(declared.sets),
+                )
+            )
+        elif declared.kind == "lost_reply":
+            faults.append(
+                LostReply(
+                    tool=declared.tool,
+                    on_call=declared.at_call,
+                    message=declared.message,
                 )
             )
         elif declared.kind == "channel_error":

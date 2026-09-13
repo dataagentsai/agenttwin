@@ -18,6 +18,13 @@ find something.
 different objects with different recovery paths. An agent that handles one and
 not the other looks healthy until production.
 
+**Lost reply.** The call ran, the world moved, and the answer never came back.
+The other three all leave the caller's record and the world agreeing with each
+other; this is the one that pulls them apart, and it is the only failure where
+retrying is dangerous rather than free. Idempotency exists for exactly this, and
+a suite without it can only test that the mechanism is *present*, never that it
+*works*.
+
 **Latency.** Not to measure speed — to open the window a stale read needs.
 """
 
@@ -100,6 +107,30 @@ class ChannelError(Perturbation):
 
 
 @dataclass
+class LostReply(Perturbation):
+    """Run the call, then lose the answer on the way back.
+
+    The one shape the other three cannot express. `ChannelError` fails *instead
+    of* acting, so the world never moved and a retry is free. `StaleRead` acts
+    and answers, then moves the world. This acts, changes the world, and then
+    the caller is told nothing — which is the only case where a retry is
+    dangerous, because the caller's own record says the effect never happened.
+
+    It is the failure that idempotency exists for, and the one no ledger on the
+    calling side can catch: the harness cannot record what it was never told.
+    Only the far end, recognising the key it was given, can tell a retry from a
+    second request. A scenario that stages this is therefore asking the question
+    that matters — not *does the agent retry*, but *does the retry charge them
+    twice*.
+    """
+
+    message: str = "the reply was lost"
+
+    def apply(self, live: Live) -> None:
+        self.fired = True
+
+
+@dataclass
 class Slow(Perturbation):
     """Delay a call. Not a latency measurement — a window opener."""
 
@@ -166,6 +197,15 @@ def perturbed(live: Live, timeline: Timeline) -> Callable:
                 if isinstance(perturbation, StaleRead):
                     perturbation.apply(live)
                     timeline.log.append(f"stale read after {tool} call {number}")
+                elif isinstance(perturbation, LostReply):
+                    # After the handler, so the effect is already in the world,
+                    # and raising rather than returning, so the caller learns
+                    # nothing at all. Returning an error here would be a
+                    # different and much kinder fault: the caller would at least
+                    # know the call was attempted.
+                    perturbation.apply(live)
+                    timeline.log.append(f"lost reply after {tool} call {number}")
+                    raise RuntimeError(perturbation.message)
             return result
 
         wrapped.__name__ = handler.__name__
@@ -177,4 +217,12 @@ def perturbed(live: Live, timeline: Timeline) -> Callable:
     return wrap
 
 
-__all__ = ["ChannelError", "Perturbation", "Slow", "StaleRead", "Timeline", "perturbed"]
+__all__ = [
+    "ChannelError",
+    "LostReply",
+    "Perturbation",
+    "Slow",
+    "StaleRead",
+    "Timeline",
+    "perturbed",
+]

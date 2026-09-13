@@ -14,7 +14,14 @@ from agenttwin.desk import Answer, Desk, Handled
 from agenttwin.loader import load
 from agenttwin.omission import Obligation, nothing_was_omitted, omitted, owed
 from agenttwin.personas import PERSONAS, brief_for
-from agenttwin.perturbation import ChannelError, Slow, StaleRead, Timeline, perturbed
+from agenttwin.perturbation import (
+    ChannelError,
+    LostReply,
+    Slow,
+    StaleRead,
+    Timeline,
+    perturbed,
+)
 from agenttwin.projection import Live, project
 from agenttwin.record import RunRecord, diff
 from agenttwin.scenario import Clock, Scenario
