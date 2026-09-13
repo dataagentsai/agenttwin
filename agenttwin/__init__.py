@@ -53,6 +53,7 @@ __all__ = [
     "run_file",
     "timeline_for",
     "ChannelError",
+    "LostReply",
     "Clock",
     "Contradiction",
     "Answer",

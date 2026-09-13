@@ -33,10 +33,9 @@ presents its session in the call's metadata (F-016).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Literal
-
-import re
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -190,6 +189,15 @@ def compose(wf: WorldFile, doc: dict) -> World:
 
             allowed, owner = _conditions(op.get("preconditions", ()), op["entity"], miss)
             required, _ = _conditions(op.get("owed_when", ()), op["entity"], miss)
+            # `authority` is either a bare word — `authority: agent` — or a
+            # mapping carrying the conditions under which the agent may act
+            # alone. Only the mapping has anything to vary.
+            authority = op.get("authority")
+            alone, _ = _conditions(
+                authority.get("agent_when", ()) if isinstance(authority, dict) else (),
+                op["entity"],
+                miss,
+            )
 
             inputs = _inputs(op.get("input", ()), op["entity"], entities[op["entity"]])
             declared = {i.name for i in inputs}
@@ -216,6 +224,7 @@ def compose(wf: WorldFile, doc: dict) -> World:
                 allowed_when=allowed,
                 session_when=owner,
                 required_when=required,
+                agent_when=alone,
                 inputs=inputs,
                 sets=sets,
                 sets_from_input=from_input,

@@ -294,6 +294,22 @@ class Action(BaseModel):
     bounds check all pass. The failure with no evidence needs the world to say
     what was owed, because nothing else in the system knows.
     """
+    agent_when: tuple[Condition, ...] = ()
+    """When the agent may do this **alone**, rather than when it is possible.
+
+    A third question, and it was the one nothing carried. `allowed_when` says
+    what the world permits anybody to do; `required_when` says when it is owed.
+    Neither says who may decide — and an operation the world permits, that is
+    not owed, and that the agent may not authorise on its own is the ordinary
+    shape of anything involving money.
+
+    Declared under `authority.agent_when` and, until this field existed,
+    dropped on load. The cost of dropping it is quiet: a threshold nobody can
+    generate a case for is a threshold nothing tests, and the one in the
+    reference agent — "above ₹10,000 needs a person" — had never once been
+    evaluated as true, because no order in its world was worth enough to reach
+    it.
+    """
     inputs: tuple[Input, ...] = ()
     """Beyond the key. The spec's declared inputs for this operation, minus the
     one that names the row it acts on."""
