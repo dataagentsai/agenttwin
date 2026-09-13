@@ -161,3 +161,13 @@ instead, so the format is tested on a domain it was not written for.
   and a world cannot yet perturb it.
 - **Shadow mode's diff** is named and not yet built. Until it is,
   `fidelity.verified_against` is `null` for every world, which is the honest value.
+- **Time does not pass within a turn.** `step_seconds` moves the clock between
+  turns and `step_days` moves the world between them; nothing moves either while
+  a single turn is running. So a property that is *about* the gap between two
+  model calls cannot be reached from a scenario — the reference agent's
+  freshness window (AHC-0107) is the case that found this: a belief formed at
+  the start of a turn is still seconds old when the turn's last tool call is
+  planned, however long the conversation is declared to take. What would fix it
+  is a perturbation that advances the clock on a named call, which is the same
+  shape as `slow` and not the same thing, since `slow` delays a call rather than
+  ageing what the run already believes.
