@@ -47,8 +47,24 @@ class Clock:
         return self.now
 
     def tick(self) -> int:
-        """A turn has passed. The only thing that moves time."""
+        """A turn has passed."""
         self.now += self.step_s
+        return self.now
+
+    def advance(self, seconds: float) -> int:
+        """Time passed *inside* a turn, because a call took it.
+
+        `tick` is a turn boundary; this is one slow call. The difference is
+        invisible to most things and decisive to anything measuring how old a
+        belief is — an agent that read a row, waited, and then acted on it holds
+        a staler belief than one that did both at once, which is the whole
+        subject of a freshness window.
+
+        Without this there was no way to express it. A perturbation could sleep,
+        but sleeping moves the wall clock and the agent is reading this one, so
+        the window stayed shut however long the suite waited.
+        """
+        self.now += int(seconds)
         return self.now
 
 

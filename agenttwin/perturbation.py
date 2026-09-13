@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from agenttwin.projection import Live
 
@@ -132,7 +133,14 @@ class LostReply(Perturbation):
 
 @dataclass
 class Slow(Perturbation):
-    """Delay a call. Not a latency measurement — a window opener."""
+    """Declare that a call took time. Not a latency measurement — a window opener.
+
+    Given a clock it moves that clock, and it must be, or it opens nothing. The
+    freshness window an agent measures a belief against is read off the clock the
+    *scenario* declares; `asyncio.sleep` moves the wall clock instead, so for as
+    long as this only slept, a read and the action taken on it were always
+    zero seconds apart however long the suite waited.
+    """
 
     seconds: float = 0.05
 
@@ -165,7 +173,7 @@ class Timeline:
         return tuple(p for p in self.perturbations if not p.fired)
 
 
-def perturbed(live: Live, timeline: Timeline) -> Callable:
+def perturbed(live: Live, timeline: Timeline, clock: Any = None) -> Callable:
     """Wrap the projection's dispatch so the timeline can intervene.
 
     Applied as a decorator around each generated handler by `project_perturbed`
@@ -179,8 +187,15 @@ def perturbed(live: Live, timeline: Timeline) -> Callable:
             for perturbation in timeline.due(tool, number):
                 if isinstance(perturbation, Slow):
                     perturbation.apply(live)
-                    timeline.log.append(f"slow {tool} call {number}")
-                    await asyncio.sleep(perturbation.seconds)
+                    timeline.log.append(f"slow {tool} call {number}: {perturbation.seconds}s")
+                    if clock is not None:
+                        # Declared time, not elapsed time. Sleeping costs the
+                        # suite real seconds and still does not move the clock
+                        # the agent reads — which is why this "window opener"
+                        # had never opened one.
+                        clock.advance(perturbation.seconds)
+                    else:
+                        await asyncio.sleep(perturbation.seconds)
                 elif isinstance(perturbation, ChannelError):
                     perturbation.apply(live)
                     timeline.log.append(f"{perturbation.channel} error on {tool} call {number}")
