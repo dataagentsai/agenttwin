@@ -27,7 +27,7 @@ distinguish the two.
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,6 +46,13 @@ the far end, where the effect lands (F-017). Same binding as `SESSION_META`."""
 
 META_SIDE_EFFECT = "side_effect"
 META_REQUIRED_SCOPE = "required_scope"
+
+
+Authorise = Callable[
+    [str, dict[str, Any], dict[str, object]], Awaitable[Mapping[str, object] | None]
+]
+"""(operation, arguments, call metadata) → the session the call acts under.
+Raise to refuse the call outright; return `None` for a caller with no session."""
 
 
 class IncoherentWorld(Exception):
@@ -141,6 +148,7 @@ def project(
     name: str = "ecom",
     wrap=None,
     scopes: Mapping[str, str] | None = None,
+    authorise: Authorise | None = None,
 ) -> MCPServer:
     """Build an MCP server from a live world.
 
@@ -156,6 +164,15 @@ def project(
     `x_binding` block until the binding spec existed; it exists now, so the
     caller supplies it and a world that is handed none projects an ungated
     surface, which is a legitimate thing to simulate.
+
+    `authorise` is how the stand-in holds a caller to what a real order system
+    would: given the operation, its arguments and the call's metadata, it returns
+    the session the call may act under, or raises to refuse it. Without one, the
+    session is whatever the caller's metadata asserts, which is what a
+    simulation of the world alone needs. With one, it is whatever a verified
+    credential says, and an asserted `customer_id` is ignored (reference-agent
+    T-002). The check itself is the caller's, because what verifies a credential
+    is a binding, not the world.
     """
     srv = MCPServer(name)
     system = live.world.systems.get(name)
@@ -164,7 +181,7 @@ def project(
 
     required = dict(scopes or {})
     for action_name, action in system.actions.items():
-        _register(srv, live, action_name, action, wrap, required.get(action_name))
+        _register(srv, live, action_name, action, wrap, required.get(action_name), authorise)
 
     return srv
 
@@ -176,6 +193,7 @@ def _register(
     action: Action,
     wrap=None,
     scope: str | None = None,
+    authorise: Authorise | None = None,
 ) -> None:
     entity = live.world.entities[action.entity]
     key_field = entity.key
@@ -183,10 +201,15 @@ def _register(
     async def handler(ctx: Context | None = None, **arguments: Any) -> dict[str, Any]:
         key = arguments[key_field]
         row = live.get(action.entity, key)
+        session = (
+            await authorise(action_name, dict(arguments), _meta(ctx))
+            if authorise is not None
+            else _session(ctx)
+        )
         # Not yours is answered exactly as not there (F-016). A refusal that
         # confirmed the record exists — or, worse, returned it — would tell a
         # stranger their guess was right and what was behind it.
-        if row is None or not action.visible_to(row, _session(ctx)):
+        if row is None or not action.visible_to(row, session):
             raise UnknownRecord(f"no {action.entity} {key}")
 
         if action.side_effect == "read":
@@ -250,13 +273,18 @@ def _idempotency_key(ctx: Context | None) -> str | None:
     return key if isinstance(key, str) and key else None
 
 
-def _session(ctx: Context | None) -> dict[str, object] | None:
-    """The caller's session from the call's metadata, or `None` — never a guess."""
+def _meta(ctx: Context | None) -> dict[str, object]:
+    """The call's metadata, or empty — never a guess."""
     try:
         meta = ctx.request_context.meta if ctx is not None else None
     except (AttributeError, ValueError):
-        return None
-    session = meta.get(SESSION_META) if isinstance(meta, dict) else None
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _session(ctx: Context | None) -> dict[str, object] | None:
+    """The caller's session from the call's metadata, or `None` — never a guess."""
+    session = _meta(ctx).get(SESSION_META)
     return session if isinstance(session, dict) else None
 
 
@@ -305,6 +333,7 @@ __all__ = [
     "IDEMPOTENCY_META",
     "META_SIDE_EFFECT",
     "SESSION_META",
+    "Authorise",
     "UnknownRecord",
     "project",
 ]
