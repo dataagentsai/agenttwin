@@ -221,6 +221,7 @@ def compose(wf: WorldFile, doc: dict) -> World:
             actions[op_name] = Action(
                 entity=op["entity"],
                 side_effect=op["side_effect"],
+                many=str(op.get("output", "")).endswith("[]"),
                 allowed_when=allowed,
                 session_when=owner,
                 required_when=required,

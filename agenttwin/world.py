@@ -276,6 +276,10 @@ class Action(BaseModel):
 
     entity: str
     side_effect: Literal["read", "reversible", "irreversible"] = "read"
+    many: bool = False
+    """A read of many rows (`output: entity[]` in the spec): no key, and every row
+    the caller's session may see. `session_when` is its whole scope, which is why
+    the spec validator refuses a many-read without one."""
     allowed_when: tuple[Condition, ...] = ()
     session_when: tuple[SessionCondition, ...] = ()
     """Whose rows this action may touch. Checked before anything else, and a

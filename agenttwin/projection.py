@@ -198,6 +198,10 @@ def _register(
     entity = live.world.entities[action.entity]
     key_field = entity.key
 
+    if action.many:
+        _register_listing(srv, live, action_name, action, wrap, scope, authorise)
+        return
+
     async def handler(ctx: Context | None = None, **arguments: Any) -> dict[str, Any]:
         key = arguments[key_field]
         row = live.get(action.entity, key)
@@ -232,6 +236,48 @@ def _register(
     handler.__doc__ = action.description or action_name
 
     typed = _typed(handler, key_field, action.inputs)
+    srv.tool(
+        name=action_name,
+        description=action.description or action_name,
+        meta={
+            META_SIDE_EFFECT: action.side_effect,
+            **({META_REQUIRED_SCOPE: scope} if scope else {}),
+        },
+        structured_output=True,
+    )(typed if wrap is None else wrap(action_name, typed))
+
+
+def _register_listing(
+    srv: MCPServer,
+    live: Live,
+    action_name: str,
+    action: Action,
+    wrap=None,
+    scope: str | None = None,
+    authorise: Authorise | None = None,
+) -> None:
+    """A read of many rows: every row of the entity the caller's session may see.
+
+    No key, so the session is the whole scope. A caller with no session sees
+    nothing rather than everything, because `visible_to` fails closed; that is
+    the difference between a listing and a leak.
+    """
+
+    async def handler(ctx: Context | None = None, **arguments: Any) -> dict[str, Any]:
+        session = (
+            await authorise(action_name, dict(arguments), _meta(ctx))
+            if authorise is not None
+            else _session(ctx)
+        )
+        rows = live.rows.get(action.entity, {}).values()
+        return {
+            "found": True,
+            "items": [copy.deepcopy(r) for r in rows if action.visible_to(r, session)],
+        }
+
+    handler.__name__ = action_name
+    handler.__doc__ = action.description or action_name
+    typed = _typed(handler, None, action.inputs)
     srv.tool(
         name=action_name,
         description=action.description or action_name,
@@ -291,7 +337,7 @@ def _session(ctx: Context | None) -> dict[str, object] | None:
 ANNOTATIONS: dict[str, type] = {"str": str, "int": int, "float": float, "bool": bool}
 
 
-def _typed(handler, key_field: str, inputs: tuple[Input, ...] = ()):
+def _typed(handler, key_field: str | None, inputs: tuple[Input, ...] = ()):
     """Give the handler a signature and annotations MCP can build a schema from.
 
     The SDK derives `inputSchema` from the function signature and `outputSchema`
@@ -312,14 +358,20 @@ def _typed(handler, key_field: str, inputs: tuple[Input, ...] = ()):
         )
         for i in inputs
     ]
+    # A listing (`key_field is None`) has no row to name, so no key parameter.
+    keyed = (
+        [inspect.Parameter(key_field, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=str)]
+        if key_field is not None
+        else []
+    )
     params = [
-        inspect.Parameter(key_field, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=str),
+        *keyed,
         *declared,
         inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context, default=None),
     ]
     handler.__signature__ = inspect.Signature(params, return_annotation=dict[str, Any])
     handler.__annotations__ = {
-        key_field: str,
+        **({key_field: str} if key_field is not None else {}),
         **{i.name: ANNOTATIONS[i.type] for i in inputs},
         "ctx": Context,
         "return": dict[str, Any],
