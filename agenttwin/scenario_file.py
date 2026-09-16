@@ -50,6 +50,10 @@ class ActorFile(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: Literal["scripted", "state_machine", "model"] = "scripted"
+    opens: bool = False
+    """The customer opens the conversation before saying anything, and is shown
+    whatever the implementation shows on opening. With `says` empty, that opening
+    is the reply every check reads."""
     says: tuple[str, ...] = ()
     persona: str = "plain"
     """`model` only: how this customer behaves, from the catalogue. The

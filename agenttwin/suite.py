@@ -219,6 +219,14 @@ async def run_file(
     conversation: object = None
     reply = ""
 
+    if scenario.actor.opens:
+        if subject.opens is None:
+            raise Unrunnable(
+                f"{path.name}: opens a conversation and this implementation shows nothing on it"
+            )
+        reply = await subject.opens(scenario.as_)
+        transcript.add("", reply)
+
     for _ in range(scenario.max_turns):
         said = actor.next(reply)
         if inspect.isawaitable(said):

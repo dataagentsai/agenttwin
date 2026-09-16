@@ -57,5 +57,10 @@ class Subject:
     colleague: Callable[[str, str, int], Offstage] | None = None
     """`(resolution, by, delay_s) -> a desk`. `None` says no escalation desk."""
 
+    opens: Callable[[str], Awaitable[str]] | None = None
+    """`(customer_id) -> what the customer is shown` when they open a conversation,
+    before saying anything. `None` says this implementation shows nothing on
+    opening, and a scenario whose actor `opens` fails loudly against it."""
+
 
 __all__ = ["Offstage", "Subject"]
