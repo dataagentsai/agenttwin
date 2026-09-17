@@ -99,6 +99,14 @@ class Approver:
 
     determinism: Determinism = Determinism.SCRIPTED
     reviewed: list[Review] = field(default_factory=list)
+    open: dict[str, object] = field(default_factory=dict)
+    """What this reviewer has seen in the queue and not yet decided.
+
+    A queue may drop an approval that expired, and a reviewer who opened it
+    before then still has it in front of them. Without this, a reviewer who
+    answers too late never answers at all, and the refusal that is the whole
+    point of the window can never be observed (T-028: a Temporal queue that
+    drops expired approvals is what showed it)."""
 
     @classmethod
     def grants(cls, store, decide, **kw) -> Approver:
@@ -124,11 +132,15 @@ class Approver:
         them knowing what the other is doing.
         """
         moment = at if at is not None else int(time.time())
-        pending = await self.store.pending()  # type: ignore[attr-defined]
+        for approval in await self.store.pending():  # type: ignore[attr-defined]
+            self.open.setdefault(approval.id, approval)
 
         outcomes: list[Review] = []
-        for approval in pending:
-            outcomes.append(await self._look_at(approval, moment))
+        for approval in list(self.open.values()):
+            review = await self._look_at(approval, moment)
+            if review.outcome != "waiting":
+                del self.open[approval.id]  # type: ignore[attr-defined]
+            outcomes.append(review)
         # The second decision, on something that has already left the queue.
         # Deliberately after the queue pass and against an id this reviewer
         # granted itself, because that is the honest shape of it: nobody
