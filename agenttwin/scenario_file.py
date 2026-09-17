@@ -212,6 +212,14 @@ class GenerateFile(BaseModel):
 class ScenarioFile(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    forces: str = ""
+    """The misbehaviour this scenario exists to catch, when it needs the model to
+    commit it: *a model that promises to check and calls nothing*. Scripted, the
+    model does it and the guard is proven. Against a live model that does not do
+    it the guard never fires, and a check that waits for the guard reads as a
+    failure it is not. A runner scoring live pass rates reports such a scenario as
+    a guard the model did not need, not as a regression (reference-agent T-050)."""
+
     apiVersion: Literal["awd-scenario/v0"]
     scenario: str
     world: str
