@@ -157,6 +157,17 @@ class PerturbationFile(BaseModel):
     seconds: float = 0.05
     """`slow` only. A window opener, never a latency measurement."""
 
+    lasts_s: int = 0
+    """`provider_*` only: an outage rather than a blip. Once the fault fires,
+    every model call fails the same way until this many seconds of the
+    scenario's clock have passed. Zero is one failed call.
+
+    Declared in time, not in calls, because a count of calls is a count of the
+    binding's retries: `provider_unavailable` on calls 1 and 2 was meant as two
+    failed turns and a resilient agent absorbed both in its first turn's retries
+    (reference-agent T-050). An outage that lasts two turns' worth of clock fails
+    two turns whatever the retry count."""
+
     retry_after: float | None = None
     """`provider_throttled` only: what the provider says about coming back.
 

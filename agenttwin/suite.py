@@ -116,16 +116,16 @@ def actor_for(scenario: ScenarioFile, voice=None):
 PROVIDER_KINDS = ("provider_throttled", "provider_unavailable", "provider_malformed")
 
 
-def provider_faults(scenario: ScenarioFile) -> tuple[tuple[int, str, float | None], ...]:
+def provider_faults(scenario: ScenarioFile) -> tuple[tuple[int, str, float | None, int], ...]:
     """The faults a scenario schedules on the **model channel**, as data.
 
-    `(call number, kind, retry_after)`. Deliberately not objects and deliberately
+    `(call number, kind, retry_after, lasts_s)`. Deliberately not objects and deliberately
     not exceptions: this package cannot see the agent's types, and a simulator
     that imported them would simulate one agent. The binding maps a kind onto
     whatever its own provider adapter raises.
     """
     return tuple(
-        (p.at_call, p.kind, p.retry_after)
+        (p.at_call, p.kind, p.retry_after, p.lasts_s)
         for p in scenario.perturbations
         if p.kind in PROVIDER_KINDS
     )
