@@ -264,6 +264,13 @@ class Input(BaseModel):
     type: Literal["str", "int", "float", "bool"] = "str"
 
 
+class _Known(dict):  # type: ignore[type-arg]
+    """A row for a refusal template: a field it does not carry reads as unknown."""
+
+    def __missing__(self, field: str) -> str:
+        return "unknown"
+
+
 class Action(BaseModel):
     """A tool the world exposes, and when it is allowed.
 
@@ -334,7 +341,10 @@ class Action(BaseModel):
     def evaluate(self, row: dict) -> tuple[bool, str]:
         for condition in self.allowed_when:
             if not condition.holds(row):
-                return False, self.refusal.format(**row)
+                # format_map with a default: a refusal naming a field this row
+                # does not carry still refuses. A KeyError here turned a refusal
+                # into a tool crash when a template outgrew an older row.
+                return False, self.refusal.format_map(_Known(row))
         return True, "allowed"
 
 
