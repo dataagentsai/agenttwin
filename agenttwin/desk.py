@@ -118,6 +118,14 @@ class Desk:
 
     determinism: Determinism = Determinism.SCRIPTED
     handled: list[Handled] = field(default_factory=list)
+    open: dict[str, object] = field(default_factory=dict)
+    """What this desk has seen in the queue and not yet closed.
+
+    A queue may drop an escalation the moment it lapses, and a colleague who
+    opened it before then still has it on their screen. Without this, the desk
+    that *arrives too late* never arrives at all: the item is gone before it
+    looks, so nobody is ever told they are too late, which is the outcome the
+    window exists to produce. Same reasoning as `Approver.open`."""
 
     @classmethod
     def answers(cls, store, close, **kw) -> Desk:
@@ -140,11 +148,15 @@ class Desk:
         what the other is doing.
         """
         moment = at if at is not None else int(time.time())
-        queued = await self.store.pending()  # type: ignore[attr-defined]
+        for escalation in await self.store.pending():  # type: ignore[attr-defined]
+            self.open.setdefault(escalation.id, escalation)
 
         seen: list[Handled] = []
-        for escalation in queued:
-            seen.append(await self._pick_up(escalation, moment))
+        for escalation in list(self.open.values()):
+            picked = await self._pick_up(escalation, moment)
+            if picked.outcome != "waiting":
+                del self.open[escalation.id]  # type: ignore[attr-defined]
+            seen.append(picked)
         self.handled.extend(seen)
         return tuple(seen)
 
