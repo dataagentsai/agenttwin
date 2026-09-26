@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import inspect
 import re
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 
 from agenttwin.actor import (
@@ -185,9 +187,49 @@ async def run_file(
     voice=None,
     clock: Clock | None = None,
 ) -> tuple[RunRecord, tuple[Outcome, ...]]:
-    """Drive one declared scenario and answer every check it makes."""
+    """Drive one declared scenario, once, and answer every check it makes.
+
+    `live` is the world the `subject` was built against; omitted, a fresh one
+    is started (only right for a subject that does not read the world).
+    `timeline` and `clock` must be the ones the binding wrapped the projection
+    with, or declared faults and time will not reach the agent.
+
+    **A scenario with a `generate` block is one run per case, not one run.**
+    `run_file` runs exactly one: the case already planted in `live` (see
+    `attack_cases` and `plant`). If no generated payload is planted there it
+    does not drive the subject at all and returns a single **failing** outcome,
+    `the generated cases ran` — generation run 2 (NOTES §8) watched a scenario
+    declaring twelve injection cases run once with nothing planted, and pass.
+    Use `run_generated` to run every case, each in a fresh world.
+    """
     scenario = load_scenario(path)
     world = live if live is not None else Live.start(load(path.parent / scenario.world))
+
+    if scenario.generate is not None and not _planted(world, scenario):
+        declared = scenario.generate
+        outcome = Outcome(
+            check="the generated cases ran",
+            passed=False,
+            detail=(
+                f"declares {declared.count} {declared.kind} case(s) into {declared.into} "
+                f"{declared.key} and none is planted in the world handed to run_file — "
+                "run it with run_generated, or plant one case from attack_cases first"
+            ),
+        )
+        record = RunRecord(
+            scenario=scenario.scenario,
+            world=world.world.name,
+            seed=world.world.seed,
+            resolution="mock",
+            determinism_class=Determinism.SCRIPTED.value,
+            changes=(),
+            effects=(),
+            discharges=scenario.discharges,
+            reply="",
+            transcript=(),
+            verdicts={outcome.check: False},
+        )
+        return record, (outcome,)
 
     reviewer = None
     if scenario.approver is not None:
@@ -281,4 +323,57 @@ async def run_file(
     return record, outcomes
 
 
-__all__ = ["Unrunnable", "run_file"]
+def _planted(live: Live, scenario: ScenarioFile) -> bool:
+    """Whether the row the scenario plants into holds one of its payloads."""
+    declared = scenario.generate
+    if declared is None:
+        return True
+    entity, _, field_name = declared.into.partition(".")
+    row = live.get(entity, declared.key)
+    if row is None:
+        return False
+    return row.get(field_name) in {payload for _, payload in attack_cases(scenario)}
+
+
+SubjectFor = Callable[[Live, Timeline, Clock], AbstractAsyncContextManager[Subject]]
+"""`(live, timeline, clock) -> async context manager yielding a Subject` — the
+binding builds its implementation against *this* world, wrapping the projection
+with `perturbed(live, timeline, clock)` so faults and time reach it."""
+
+
+async def run_generated(
+    path: Path,
+    *,
+    subject_for: SubjectFor,
+    voice=None,
+) -> tuple[tuple[str, RunRecord, tuple[Outcome, ...]], ...]:
+    """Run a scenario once per generated case, each in a fresh world.
+
+    For each `(name, payload)` from `attack_cases`: start the world, `plant`
+    the payload, build a timeline and a clock from the scenario, enter
+    `subject_for(live, timeline, clock)`, and `run_file` against it. Fresh per
+    case because an attack that succeeded would otherwise leave the world
+    changed for the next, and the second failure would be the first one's.
+
+    Returns `(case name, record, outcomes)` per case. A scenario without a
+    `generate` block runs once, named `""`, so a suite can call this for every
+    file.
+    """
+    scenario = load_scenario(path)
+    cases = attack_cases(scenario) or [("", None)]
+    results: list[tuple[str, RunRecord, tuple[Outcome, ...]]] = []
+    for name, payload in cases:
+        live = Live.start(load(path.parent / scenario.world))
+        if payload is not None:
+            plant(live, scenario, payload)
+        timeline = timeline_for(scenario)
+        clock = Clock(step_s=scenario.step_seconds)
+        async with subject_for(live, timeline, clock) as subject:
+            record, outcomes = await run_file(
+                path, subject=subject, live=live, timeline=timeline, voice=voice, clock=clock
+            )
+        results.append((name, record, outcomes))
+    return tuple(results)
+
+
+__all__ = ["SubjectFor", "Unrunnable", "run_file", "run_generated"]

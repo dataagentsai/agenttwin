@@ -42,6 +42,7 @@ from agenttwin.suite import (
     plant,
     provider_faults,
     run_file,
+    run_generated,
     timeline_for,
 )
 from agenttwin.truth import Contradiction, answer_is_true, contradictions
@@ -66,6 +67,7 @@ __all__ = [
     "plant",
     "provider_faults",
     "run_file",
+    "run_generated",
     "timeline_for",
     "ChannelError",
     "LostReply",

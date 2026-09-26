@@ -186,6 +186,16 @@ with spies (NOTES §8); each is now a `Protocol` in `agenttwin.subject`,
 | `decide` (`Decide`) | `await decide(store, approval_id, *, granted, by, now)`; raise to reject — recorded as `refused` with the exception's text |
 | `close` (`Close`) | `await close(store, escalation_id, *, outcome, by, note, now)`, `outcome` one of `resolved` · `agent_could_have` · `misrouted`; raise to reject |
 
+**A `generate` block is many runs.** `run_generated(path, subject_for=...)`
+runs the scenario once per case from `attack_cases`, each in a fresh world with
+its payload `plant`ed, building the subject per case through
+`subject_for(live, timeline, clock)`. `run_file` runs one: the case already
+planted in the `live` it is handed. Handed a world with no generated payload
+planted, it does not drive the subject and returns one failing outcome, *the
+generated cases ran*. Until 26 September 2026 it ran the scenario once with
+nothing planted and let it pass — generation run 2 saw twelve declared
+injection cases claim AAC-0058 on zero attacks.
+
 ## Declared, never inferred — and what that buys
 
 A world is told what is true; it infers nothing. Every question a data generator
