@@ -22,7 +22,15 @@ from agenttwin.perturbation import (
     Timeline,
     perturbed,
 )
-from agenttwin.projection import Live, project
+from agenttwin.projection import (
+    APPROVAL_META,
+    IDEMPOTENCY_META,
+    SESSION_META,
+    Live,
+    NotAuthorised,
+    authority_check,
+    project,
+)
 from agenttwin.record import RunRecord, diff
 from agenttwin.scenario import Clock, Scenario
 from agenttwin.scenario import run as run_scenario
@@ -63,6 +71,11 @@ __all__ = [
     "Handled",
     "Review",
     "Live",
+    "APPROVAL_META",
+    "IDEMPOTENCY_META",
+    "SESSION_META",
+    "NotAuthorised",
+    "authority_check",
     "Obligation",
     "PERSONAS",
     "brief_for",

@@ -41,7 +41,13 @@ The loader reads the world, reads the spec it cites, and composes one world:
 
 - **Entities** — exactly those the projected systems `own` in the spec.
   Approvals and escalations belong to the harness, not to any external system,
-  and so are not in the world.
+  and so are not in the world. That does not stop a projected far end checking
+  one (AHC-0057 says the executing side loads the approval and confirms it
+  matches): the approval is **carried by reference** — its id in the call's
+  `_meta` under `aoas/approval` — and **loaded through a hook the binding
+  supplies**, which reads the harness's approval records. The world holds no
+  approval rows; the far end still does the check. See
+  [The far end's contract](#the-far-ends-contract).
 - **Actions** — the spec's operations listed under each projected system's
   `operations`, with their preconditions as the conditions the stand-in
   enforces, their `owed_when` as its obligations, and their effects as what it
@@ -87,6 +93,81 @@ answered before gets that same answer, and its effect does not land twice. This
 is the far end a harness-side ledger cannot reach: when an effect lands and its
 reply is lost, only the system that applied it can tell the retry from a second
 request (F-017).
+
+## The far end's contract
+
+What a builder binding an agent to a projected system needs, and — until
+generation run 2 found each by probing (its NOTES §1, §2) — could not read
+anywhere but the modules.
+
+**The call's `_meta` keys.** `aoas/session` (the caller's session or a
+credential for it), `aoas/idempotency-key` (a string), `aoas/approval` (an
+approval's id). All three are optional on the wire; what a missing one means is
+the hook's decision.
+
+**The `authorise` hook.** `project(live, authorise=hook)` takes
+
+    async def hook(operation: str, arguments: dict, meta: dict) -> Mapping | None
+
+- It **must be `async def`**. `project` refuses a plain function with a
+  `TypeError` naming the hook, and a callable that returns something not
+  awaitable is refused on the call with a readable error.
+- `arguments` is what the caller sent: the entity key and the declared inputs.
+  `meta` is the call's `_meta`, or `{}`.
+- It returns **the session the call acts under**: a mapping with every field
+  the spec's ownership preconditions compare (`equals_session: customer_id`
+  needs `customer_id`). Extra keys are ignored. `None` is no session: owned rows
+  are invisible and listings empty. Anything else is refused as a contract
+  error.
+- It **raises to refuse**. A `ToolError` (from `mcp`) — `NotAuthorised` is one —
+  reaches the caller with its reason; any other exception reads as
+  "Error executing tool <name>", indistinguishable from a crash.
+- Without a hook, the session is whatever `aoas/session` asserts.
+
+**Scope and authority are the hook's duty.** The projection enforces
+preconditions (`allowed_when`) and ownership (`session_when`) and nothing else.
+It *publishes* each operation's `required_scope` in the tool's `_meta` and
+carries `agent_when` on each composed action, but checks neither — which
+credential carries which scope, and where approvals are kept, are binding facts
+a world cannot know. A hook that verifies a credential and stops there projects
+a far end that lets any verified caller refund anything: generation run 2's
+probe refunded an order that needed a person with no approval at all. AHC-0057
+puts the check where the action executes, so it belongs in the hook.
+
+`authority_check(live, scopes=..., approval=...)` is the ready-made version, for
+a hook to call after verifying the credential:
+
+    await check(operation, arguments, meta, session=session, granted=scopes_held)
+
+It requires an approval when the caller lacks the operation's scope, or when any
+`agent_when` clause is false **on the live row**; a call that needs one must name
+it under `aoas/approval`, and the binding's `approval` hook —
+`async (approval_id, operation, arguments, meta)` — loads it from the harness's
+records and raises unless it matches (granted, unexpired, same operation,
+arguments and customer, not self-approved). With no `approval` hook, every call
+that needs one is refused. A row that is missing or not the caller's is let
+through to be answered as unknown, so the check never reveals what a stranger's
+row is worth. Using it is optional; skipping it is a decision the binding
+should record.
+
+**Answers.** Every case, and the channel it arrives on:
+
+| Case | Channel | Structured result |
+|---|---|---|
+| read | result | `{found: true, ...row}` |
+| listing | result | `{found: true, items: [...]}` — the rows the session may see |
+| write, allowed | result | `{allowed: true, reason: "allowed", ...row}` |
+| write, a precondition fails | result | `{allowed: false, reason, ...row}` |
+| unknown row, or not the caller's — `unknown_record="result"` | result | `{found: false, allowed: false, reason: "no <entity> <key>"}` |
+| the same — `unknown_record="raise"` (the default) | protocol error (`isError`) | — |
+| the hook refused | protocol error (`isError`) | — |
+
+`unknown_record="result"` is the **documented behaviour to build against**: the
+AOAS lists `unknown_record` as a failure mode a caller reads, and a protocol
+error cannot be told from the server crashing. `"raise"` stays the default only
+because the reference agent's suite reads the protocol error today. In both
+modes a row the caller may not touch is answered exactly as a missing one —
+same channel, same text but for the key it was asked about.
 
 ## Declared, never inferred — and what that buys
 
