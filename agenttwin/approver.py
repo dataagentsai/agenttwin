@@ -37,13 +37,32 @@ reviewer does not implement the expiry rule, they run into it.
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any, Protocol
 
 from agenttwin.actor import Determinism
+from agenttwin.subject import Queue, Queued
 
-Decide = Callable[..., Awaitable[object]]
+
+class Decide(Protocol):
+    """`await decide(store, approval_id, *, granted, by, now)` — the agent's own
+    rule for recording a decision, injected.
+
+    - `store` — the `Queue` the `Approver` was built with, passed back as is.
+    - `approval_id` — a `Queued.id` from `store.pending()`.
+    - `granted` — `True` to grant, `False` to deny.
+    - `by` — the reviewer's name (`Approver.name`).
+    - `now` — scenario time in seconds, the moment the decision is made.
+
+    Return value ignored. **Raise to reject the decision** (expired, already
+    decided, self-approval): the reviewer records it as `refused` with the
+    exception's text, which is how *answered too late* is observed."""
+
+    def __call__(
+        self, store: Any, approval_id: str, /, *, granted: bool, by: str, now: int
+    ) -> Awaitable[object]: ...
 
 
 class Decision(StrEnum):
@@ -84,9 +103,21 @@ class Approver:
     Deliberately not a subclass of the conversational actor. It does not speak to
     the agent and the agent never hears from it; it acts on the queue out of
     band, which is exactly how the real thing works.
+
+    `Approver(store, decide, decision=..., delay_s=..., name=...)`:
+
+    - `store` — a `Queue`: `await store.pending()` returns items with `.id` and
+      `.created_at` (scenario seconds).
+    - `decide` — a `Decide`: `await decide(store, id, granted=, by=, now=)`;
+      raise to reject.
+    - `await review(at=moment)` looks at the queue once. An item is decided once
+      `moment >= created_at + delay_s`; `SILENCE` never decides. Returns, and
+      appends to `reviewed`, one `Review` per item looked at.
+
+    The classmethods `grants`, `denies`, `silent`, `grants_twice` set `decision`.
     """
 
-    store: object
+    store: Queue
     decide: Decide
     decision: Decision = Decision.GRANT
     delay_s: int = 0
@@ -99,7 +130,7 @@ class Approver:
 
     determinism: Determinism = Determinism.SCRIPTED
     reviewed: list[Review] = field(default_factory=list)
-    open: dict[str, object] = field(default_factory=dict)
+    open: dict[str, Queued] = field(default_factory=dict)
     """What this reviewer has seen in the queue and not yet decided.
 
     A queue may drop an approval that expired, and a reviewer who opened it
@@ -132,14 +163,14 @@ class Approver:
         them knowing what the other is doing.
         """
         moment = at if at is not None else int(time.time())
-        for approval in await self.store.pending():  # type: ignore[attr-defined]
+        for approval in await self.store.pending():
             self.open.setdefault(approval.id, approval)
 
         outcomes: list[Review] = []
         for approval in list(self.open.values()):
             review = await self._look_at(approval, moment)
             if review.outcome != "waiting":
-                del self.open[approval.id]  # type: ignore[attr-defined]
+                del self.open[approval.id]
             outcomes.append(review)
         # The second decision, on something that has already left the queue.
         # Deliberately after the queue pass and against an id this reviewer

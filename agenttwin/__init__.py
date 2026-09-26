@@ -8,9 +8,9 @@ system whose test results mean nothing.
 """
 
 from agenttwin.actor import Determinism, Rule, ScriptedActor, StateMachineActor, Transcript
-from agenttwin.approver import Approver, Decision, Review
+from agenttwin.approver import Approver, Decide, Decision, Review
 from agenttwin.checks import Check, Outcome
-from agenttwin.desk import Answer, Desk, Handled
+from agenttwin.desk import Answer, Close, Desk, Handled
 from agenttwin.loader import load
 from agenttwin.omission import Obligation, nothing_was_omitted, omitted, owed
 from agenttwin.personas import PERSONAS, brief_for
@@ -35,7 +35,7 @@ from agenttwin.record import RunRecord, diff
 from agenttwin.scenario import Clock, Scenario
 from agenttwin.scenario import run as run_scenario
 from agenttwin.scenario_file import ScenarioFile, load_scenario
-from agenttwin.subject import Subject
+from agenttwin.subject import Offstage, OffstageFactory, Queue, Queued, Say, Subject
 from agenttwin.suite import (
     Unrunnable,
     attack_cases,
@@ -53,6 +53,13 @@ __all__ = [
     "Outcome",
     "ScenarioFile",
     "Subject",
+    "Say",
+    "Offstage",
+    "OffstageFactory",
+    "Queue",
+    "Queued",
+    "Decide",
+    "Close",
     "Unrunnable",
     "load_scenario",
     "attack_cases",

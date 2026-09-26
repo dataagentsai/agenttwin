@@ -37,17 +37,33 @@ only. The desk is handed a `close` callable and knows nothing about what it does
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any, Protocol
 
 from agenttwin.actor import Determinism
+from agenttwin.subject import Queue, Queued
 
-Close = Callable[..., Awaitable[object]]
-"""`(store, escalation_id, *, outcome, by, note, now) -> Escalation`.
 
-Structural, not imported. The desk calls it and reports what happened.
-"""
+class Close(Protocol):
+    """`await close(store, escalation_id, *, outcome, by, note, now)` — the
+    agent's own rule for closing an escalation, injected.
+
+    - `store` — the `Queue` the `Desk` was built with, passed back as is.
+    - `escalation_id` — a `Queued.id` from `store.pending()`.
+    - `outcome` — an `Answer` value: `resolved` · `agent_could_have` ·
+      `misrouted` (the agent's own vocabulary; the strings are the seam).
+    - `by` — the desk's name (`Desk.name`); `note` — `Desk.note`.
+    - `now` — scenario time in seconds.
+
+    Return value ignored. **Raise to reject the close** (lapsed, already
+    closed): the desk records it as `refused` with the exception's text.
+    Structural, not imported."""
+
+    def __call__(
+        self, store: Any, escalation_id: str, /, *, outcome: str, by: str, note: str, now: int
+    ) -> Awaitable[object]: ...
 
 
 class Answer(StrEnum):
@@ -99,9 +115,22 @@ class Desk:
     finds out on their next turn. That is exactly how the real thing behaves, and
     modelling it any other way would quietly test a system where the handoff is
     synchronous.
+
+    `Desk(store, close, answer=..., delay_s=..., name=..., note=...)`:
+
+    - `store` — a `Queue`: `await store.pending()` returns items with `.id` and
+      `.created_at` (scenario seconds).
+    - `close` — a `Close`: `await close(store, id, outcome=, by=, note=, now=)`;
+      raise to reject.
+    - `await review(at=moment)` works the queue once. An item is closed once
+      `moment >= created_at + delay_s`; `SILENCE` never closes. Returns, and
+      appends to `handled`, one `Handled` per item looked at.
+
+    The classmethods `answers`, `says_agent_could_have`, `never_comes` set
+    `answer`.
     """
 
-    store: object
+    store: Queue
     close: Close
 
     answer: Answer = Answer.HANDLED
@@ -118,7 +147,7 @@ class Desk:
 
     determinism: Determinism = Determinism.SCRIPTED
     handled: list[Handled] = field(default_factory=list)
-    open: dict[str, object] = field(default_factory=dict)
+    open: dict[str, Queued] = field(default_factory=dict)
     """What this desk has seen in the queue and not yet closed.
 
     A queue may drop an escalation the moment it lapses, and a colleague who
@@ -148,14 +177,14 @@ class Desk:
         what the other is doing.
         """
         moment = at if at is not None else int(time.time())
-        for escalation in await self.store.pending():  # type: ignore[attr-defined]
+        for escalation in await self.store.pending():
             self.open.setdefault(escalation.id, escalation)
 
         seen: list[Handled] = []
         for escalation in list(self.open.values()):
             picked = await self._pick_up(escalation, moment)
             if picked.outcome != "waiting":
-                del self.open[escalation.id]  # type: ignore[attr-defined]
+                del self.open[escalation.id]
             seen.append(picked)
         self.handled.extend(seen)
         return tuple(seen)

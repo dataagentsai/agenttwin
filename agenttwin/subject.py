@@ -20,27 +20,94 @@ escalation. That is the whole of it.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 
 class Offstage(Protocol):
-    """A human who acts between turns and never speaks to the agent."""
+    """A human who acts between turns and never speaks to the agent.
+
+    `await review(at=moment)` — look at the queue once, at scenario time
+    `moment` (seconds), and act on whatever is due. `Approver` and `Desk` are
+    the two AgentTwin ships."""
 
     async def review(self, *, at: int | None = None) -> Any: ...
 
 
+class Queued(Protocol):
+    """One item in a queue an offstage human works — an approval or an
+    escalation. Only these two attributes are read."""
+
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def created_at(self) -> int:
+        """Scenario time (seconds) the item was raised; a reviewer's or a desk's
+        `delay_s` is counted from here."""
+        ...
+
+
+class Queue(Protocol):
+    """The store an `Approver` or `Desk` is handed.
+
+    `await store.pending()` returns what is waiting now. The store is passed
+    back, untouched, as the first argument of `decide` / `close`, so it may
+    carry whatever else those need."""
+
+    async def pending(self) -> Iterable[Queued]: ...
+
+
+class Say(Protocol):
+    """`await say(text, customer_id, conversation) -> (reply, conversation)`.
+
+    `conversation` is `None` on the first turn and thereafter whatever the
+    previous call returned — opaque to the runner, so the implementation keeps
+    its own state in it."""
+
+    def __call__(
+        self, text: str, customer_id: str, conversation: Any, /
+    ) -> Awaitable[tuple[str, Any]]: ...
+
+
+class OffstageFactory(Protocol):
+    """`factory(decision, by, delay_s) -> Offstage`, called once per run.
+
+    - `decision` — for a reviewer `grant` · `refuse` · `never` · `grant-twice`;
+      for a colleague `handled` · `never` (the scenario's `approver.decides` /
+      `desk.resolves`, passed through as written).
+    - `by` — who acts, for the audit trail.
+    - `delay_s` — seconds after an item's `created_at` before they act.
+
+    Called synchronously; the returned object's `review` is awaited."""
+
+    def __call__(self, decision: str, by: str, delay_s: int, /) -> Offstage: ...
+
+
 @dataclass(frozen=True)
 class Subject:
-    """One implementation, mid-run, as a scenario sees it."""
+    """One implementation, mid-run, as a scenario sees it.
 
-    say: Callable[[str, str, Any], Awaitable[tuple[str, Any]]]
+    Fields (each contract is a Protocol in this module):
+
+    - `say: Say` — `async (text, customer_id, conversation) -> (reply,
+      conversation)`. Required.
+    - `reviewer: OffstageFactory | None` — `(decision, by, delay_s) -> Offstage`,
+      usually an `Approver`. `None`: no approval queue; a scenario with an
+      `approver` raises `Unrunnable`.
+    - `colleague: OffstageFactory | None` — the same shape, usually a `Desk`.
+      `None`: no escalation desk.
+    - `opens: async (customer_id) -> str | None` — what the customer is shown
+      on opening a conversation; `None` if nothing is.
+    """
+
+    say: Say
     """`(text, customer_id, conversation) -> (reply, conversation)`. The reply is
     what the customer reads; whatever typed result produced it is the
     implementation's own business."""
 
-    reviewer: Callable[[str, str, int], Offstage] | None = None
+    reviewer: OffstageFactory | None = None
     """`(decision, by, delay_s) -> an approver`, where decision is grant · refuse
     · never and `delay_s` is how long this reviewer takes before deciding.
     `None` says this implementation has no approval queue — which is a legitimate
@@ -54,7 +121,7 @@ class Subject:
     came immediately, and the approval window could never close on anybody
     (F-036)."""
 
-    colleague: Callable[[str, str, int], Offstage] | None = None
+    colleague: OffstageFactory | None = None
     """`(resolution, by, delay_s) -> a desk`. `None` says no escalation desk."""
 
     opens: Callable[[str], Awaitable[str]] | None = None
@@ -63,4 +130,4 @@ class Subject:
     opening, and a scenario whose actor `opens` fails loudly against it."""
 
 
-__all__ = ["Offstage", "Subject"]
+__all__ = ["Offstage", "OffstageFactory", "Queue", "Queued", "Say", "Subject"]

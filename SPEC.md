@@ -169,6 +169,23 @@ because the reference agent's suite reads the protocol error today. In both
 modes a row the caller may not touch is answered exactly as a missing one —
 same channel, same text but for the key it was asked about.
 
+## The runner's contract with an implementation
+
+`run_file(path, subject=...)` drives a declared scenario against a `Subject`
+the binding builds. Generation run 2 found every one of these shapes by calling
+with spies (NOTES §8); each is now a `Protocol` in `agenttwin.subject`,
+`agenttwin.approver` or `agenttwin.desk`, exported from `agenttwin`.
+
+| Seam | Shape |
+|---|---|
+| `Subject.say` (`Say`) | `async (text, customer_id, conversation) -> (reply, conversation)`. `conversation` is `None` on the first turn, then whatever the last call returned |
+| `Subject.reviewer` / `Subject.colleague` (`OffstageFactory`) | `(decision, by, delay_s) -> Offstage`, called once per run, synchronously. `decision` is the scenario's `approver.decides` (`grant` · `refuse` · `never` · `grant-twice`) or `desk.resolves` (`handled` · `never`), as written. `None` means the implementation has none, and a scenario needing one raises `Unrunnable` |
+| `Subject.opens` | `async (customer_id) -> str` shown on opening, or `None` |
+| `Offstage` | `await review(at=moment)` between turns, `moment` in scenario seconds |
+| `Approver(store, decide)` / `Desk(store, close)` | `store` is a `Queue`: `async pending()` returning items with `.id` and `.created_at` (scenario seconds). An item is acted on once `moment >= created_at + delay_s` |
+| `decide` (`Decide`) | `await decide(store, approval_id, *, granted, by, now)`; raise to reject — recorded as `refused` with the exception's text |
+| `close` (`Close`) | `await close(store, escalation_id, *, outcome, by, note, now)`, `outcome` one of `resolved` · `agent_could_have` · `misrouted`; raise to reject |
+
 ## Declared, never inferred — and what that buys
 
 A world is told what is true; it infers nothing. Every question a data generator
