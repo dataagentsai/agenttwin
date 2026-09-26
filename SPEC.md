@@ -269,13 +269,19 @@ instead, so the format is tested on a domain it was not written for.
   and a world cannot yet perturb it.
 - **Shadow mode's diff** is named and not yet built. Until it is,
   `fidelity.verified_against` is `null` for every world, which is the honest value.
-- **Time does not pass within a turn.** `step_seconds` moves the clock between
-  turns and `step_days` moves the world between them; nothing moves either while
-  a single turn is running. So a property that is *about* the gap between two
-  model calls cannot be reached from a scenario — the reference agent's
-  freshness window (AHC-0107) is the case that found this: a belief formed at
-  the start of a turn is still seconds old when the turn's last tool call is
-  planned, however long the conversation is declared to take. What would fix it
-  is a perturbation that advances the clock on a named call, which is the same
-  shape as `slow` and not the same thing, since `slow` delays a call rather than
-  ageing what the run already believes.
+- **Time passes within a turn only where a call is declared `slow`.**
+  `step_seconds` moves the clock between turns and `step_days` moves the world
+  between them. Inside a turn the only thing that moves the clock is a `slow`
+  perturbation, which advances the shared `Clock` by its `seconds` on the named
+  call (given the clock `perturbed` was built with). This note used to say a
+  within-turn gap — the reference agent's freshness window (AHC-0107) — could
+  not be reached from a scenario at all. Generation run 2 (NOTES §8) reached it:
+  the harness **stamps a read with when it was asked, not when it was
+  answered**, so a `slow` on the read moves the clock *past* the stamp and the
+  belief is already that old when the next call is planned. Stamped with the
+  answer's arrival, the same `slow` moves the clock *before* the stamp, the
+  belief is always fresh, and the window never opens — which is why the
+  reference could not reach it. The fix is harness-side and needs nothing new
+  here; a harness must stamp at the ask for the scenario to be expressible.
+  Still out of reach: ageing a belief *without* a slow call, e.g. a model call
+  that takes declared time, since the model channel does not move the clock.
