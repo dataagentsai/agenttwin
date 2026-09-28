@@ -231,6 +231,24 @@ AB-10002 has been cancelled and AB-10003 refunded"* to every reply of the
 reference passed 23 of 36 scenarios without this, and 2 with it. A claim that
 names no record (*"that order"*) stays out of reach.
 
+### Starting a new agent: `scaffold`
+
+`python -m agenttwin scaffold <aoas> --out <repo>` writes a world, scenarios, a
+binding and a gates file from the AOAS alone, each loaded the way the runner
+will load it before the command returns. The world's records are **derived from
+the conditions** — every state, each limit and one past it, each flag both ways
+— and each row carries a comment saying which condition made it; a candidate
+row the spec's invariants forbid is dropped and listed in the file's header.
+The scenarios are drafts: they name operations, keys and edges correctly and
+leave the customer's wording as `TODO`. Against the reference agent, the
+scaffold of its own AOAS produced 17 scenarios and all 17 passed, which is the
+evidence that the drafts are about the spec and not about the scaffold.
+
+Two things it cannot know and does not guess: an input that is not a field of
+the row (written `TODO`), and whether a declared refusal is answered by the
+model (no `model:` block is written, so a refusal the model answers shows as an
+overrun until one is added).
+
 **A `generate` block is many runs.** `run_generated(path, subject_for=...)`
 runs the scenario once per case from `attack_cases`, each in a fresh world with
 its payload `plant`ed, building the subject per case through

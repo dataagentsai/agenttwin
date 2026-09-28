@@ -1,6 +1,7 @@
 """`python -m agenttwin <command>`.
 
     run       drive scenario files against an implementation's binding
+    scaffold  start AgentTwin for a new agent from its AOAS
 
 Run from the implementation's own directory and environment, because the
 binding imports the implementation:
@@ -76,6 +77,17 @@ def _run(args: argparse.Namespace) -> int:
     return 0 if counts["passed"] == len(results) else 1
 
 
+def _scaffold(args: argparse.Namespace) -> int:
+    from agenttwin.scaffold import scaffold
+
+    written = scaffold(Path(args.aoas), Path(args.out), force=args.force)
+    for path in written:
+        print(f"  wrote {path}")
+    if not written:
+        print("  nothing written: every file already exists (--force to overwrite)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agenttwin")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -91,6 +103,12 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--repeat", type=int, default=1, help="runs per scenario (pass rates)")
     run.add_argument("-q", "--quiet", action="store_true")
     run.set_defaults(func=_run)
+
+    scaffold = commands.add_parser("scaffold", help="start AgentTwin for a new agent")
+    scaffold.add_argument("aoas", help="the agent's AOAS file")
+    scaffold.add_argument("--out", required=True, help="the agent's repository")
+    scaffold.add_argument("--force", action="store_true", help="overwrite existing files")
+    scaffold.set_defaults(func=_scaffold)
 
     args = parser.parse_args(argv)
     return args.func(args)

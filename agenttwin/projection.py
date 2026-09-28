@@ -193,7 +193,7 @@ class UnknownRecord(Exception):
 def project(
     live: Live,
     *,
-    name: str = "ecom",
+    name: str | None = None,
     wrap=None,
     scopes: Mapping[str, str] | None = None,
     authorise: Authorise | None = None,
@@ -215,6 +215,13 @@ def project(
 
     A row the caller may not touch is answered exactly as a missing one in
     both modes — same channel, same text — so ownership never leaks.
+
+    `name` is the world's system to project. Omitted, it is the world's only
+    system, and a world with several must be told which. It defaulted to
+    `"ecom"` until 2026-09-28 — the name one world happened to choose — so a
+    binding that never passed it worked only against worlds that had copied
+    that name, and failed against the first scaffolded one, which names the
+    system after the AOAS's own external.
 
     `unknown_record="result"` is the recommended mode: it lets a caller tell
     "no such record" (the AOAS failure mode `unknown_record`) from the server
@@ -259,6 +266,13 @@ def project(
         _require_async("authorise", authorise)
     if unknown_record not in ("raise", "result"):
         raise ValueError(f"unknown_record must be 'raise' or 'result', not {unknown_record!r}")
+    if name is None:
+        if len(live.world.systems) != 1:
+            raise KeyError(
+                f"world {live.world.name!r} declares {len(live.world.systems)} systems "
+                f"({', '.join(sorted(live.world.systems))}); name the one to project"
+            )
+        name = next(iter(live.world.systems))
     srv = MCPServer(name)
     system = live.world.systems.get(name)
     if system is None:

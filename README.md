@@ -64,6 +64,7 @@ tractable ones.
 | `provider.py` | the provider twin — an OpenAI-compatible model endpoint, scripted or forwarding, with the scenario's provider faults |
 | `binding.py` | the one entry point an implementation supplies: `(live, *, wrap, clock, model) -> Subject` |
 | `runner.py`, `__main__.py` | `python -m agenttwin run` — a suite against any binding, five statuses, overruns reported |
+| `scaffold.py` | `python -m agenttwin scaffold <aoas> --out <repo>` — a new agent's world, scenarios, binding and gates file from its AOAS alone |
 
 ## The contract that matters most
 
