@@ -12,8 +12,8 @@ the projection is the delegate that renders it as MCP.
 
 If projecting a shared world into a tool surface turns out awkward, the
 single-world premise is wrong — and that is a week-one finding rather than a
-month-three one. It did not turn out awkward, and the evidence is that the same
-34 golden cases pass against a projected server and a hand-written one.
+month-three one. It did not turn out awkward, and the evidence is that every
+golden case passes against a projected server and a hand-written one.
 
 ## What the agent cannot tell
 
