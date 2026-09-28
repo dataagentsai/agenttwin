@@ -186,6 +186,51 @@ with spies (NOTES §8); each is now a `Protocol` in `agenttwin.subject`,
 | `decide` (`Decide`) | `await decide(store, approval_id, *, granted, by, now)`; raise to reject — recorded as `refused` with the exception's text |
 | `close` (`Close`) | `await close(store, escalation_id, *, outcome, by, note, now)`, `outcome` one of `resolved` · `agent_could_have` · `misrouted`; raise to reject |
 
+### One entry point, and a model every implementation can reach
+
+A `Subject` is what a scenario needs mid-run. **How a runner that has never
+seen the implementation gets one** is `agenttwin.Binding`, named in the
+implementation's repository as `module:attribute`:
+
+    open_subject(live, *, wrap, clock, model) -> async context manager yielding a Subject
+
+Three obligations: tools come from `project(live, ..., wrap=wrap)`, with `wrap`
+forwarded unread; **every model call goes to `model.base_url`**; `clock` is the
+only clock. Generation run 2 wrote its own binding with its own signature, so
+no runner could drive it with another agent's scenarios — this is that
+signature, fixed.
+
+`model` is the **provider twin**: an OpenAI-compatible chat-completions server
+started per run. Scripted, it serves the scenario's `model:` block, one answer
+per call; live (`--live`), it forwards to a real provider. Either way it serves
+the scenario's `provider_*` perturbations as the wire carries them — a throttle
+is a 429 with `retry-after`, an outage a 503, malformed output a 200 with no
+choice — so the implementation's own provider adapter is on the path.
+
+    model:
+      - calls: [{get_order: {id: AB-10003}}]     # operations the spec declares
+      - says: That order was delivered.
+        times: 3
+
+**An absent `model:` block means the model must not be called.** A call past
+the last answer is an **overrun**, answered 503 and counted; the runner reports
+it beside the status, because a scenario that passed on an unscripted model
+failure passed for a reason nobody wrote down (reference-agent F-060).
+
+`python -m agenttwin run --binding module:attr scenarios/` runs a suite and
+gives each scenario one of five statuses — `passed`, `failed`, `unrunnable` (a
+capability the implementation lacks), `crashed` (usually the binding),
+`invalid` (the file) — because those go to different people.
+
+**Every scenario also asks one thing it does not declare**: *every reply is
+true of the records it names* — each record a reply names, judged against the
+world when the reply was read, allowing what the record held when the turn
+began (stale is not invented). A scenario's own `truthful` check asks about the
+one row its author thought of; a negative control that appended *"Order
+AB-10002 has been cancelled and AB-10003 refunded"* to every reply of the
+reference passed 23 of 36 scenarios without this, and 2 with it. A claim that
+names no record (*"that order"*) stays out of reach.
+
 **A `generate` block is many runs.** `run_generated(path, subject_for=...)`
 runs the scenario once per case from `attack_cases`, each in a fresh world with
 its payload `plant`ed, building the subject per case through
@@ -265,8 +310,9 @@ instead, so the format is tested on a domain it was not written for.
 
 - **Actors and perturbations** are still declared in code (`actor.py`,
   `perturbation.py`), not in the world file.
-- **Actors, again**: the model provider is an external system a run depends on
-  and a world cannot yet perturb it.
+- **The provider twin speaks chat-completions only.** An implementation on
+  another wire (Anthropic Messages, a streaming client) cannot be driven by it
+  yet; streaming is refused with a 400 rather than half-served.
 - **Shadow mode's diff** is named and not yet built. Until it is,
   `fidelity.verified_against` is `null` for every world, which is the honest value.
 - **Time passes within a turn only where a call is declared `slow`.**

@@ -32,6 +32,7 @@ from agenttwin.record import RunRecord, diff
 from agenttwin.scenario import Clock
 from agenttwin.scenario_file import ScenarioFile, load_scenario
 from agenttwin.subject import Subject
+from agenttwin.truth import named_contradictions
 
 
 def attack_cases(scenario: ScenarioFile) -> list[tuple[str, str]]:
@@ -260,6 +261,7 @@ async def run_file(
     tick = clock or Clock(step_s=scenario.step_seconds)
     conversation: object = None
     reply = ""
+    falsehoods: list[str] = []
 
     if scenario.actor.opens:
         if subject.opens is None:
@@ -268,6 +270,10 @@ async def run_file(
             )
         reply = await subject.opens(scenario.as_)
         transcript.add("", reply)
+        falsehoods += [
+            f"opening: {entity} {key} — {c}"
+            for entity, key, c in named_contradictions(world, reply)
+        ]
 
     for _ in range(scenario.max_turns):
         said = actor.next(reply)
@@ -275,8 +281,16 @@ async def run_file(
             said = await said
         if said is None:
             break
+        held = world.snapshot()
         reply, conversation = await subject.say(said, scenario.as_, conversation)
         transcript.add(said, reply)
+        # Judged now, against the world as it is when the customer reads it — a
+        # reply true on turn one can be made false by turn two's cancellation —
+        # allowing what the record held when this turn began (stale, not invented).
+        falsehoods += [
+            f"turn {len(transcript.turns)}: {entity} {key} — {c}"
+            for entity, key, c in named_contradictions(world, reply, held=held)
+        ]
         if scenario.step_days:
             world.advance(scenario.step_days)
         if reviewer is None and colleague is None:
@@ -294,6 +308,15 @@ async def run_file(
         "reviewed": tuple(getattr(reviewer, "reviewed", ()) or ()),
     }
     outcomes = [check.evaluate(world, world_0, reply, calls, offstage) for check in scenario.expect]
+    # Asked of every scenario, whatever it declares: nothing the customer read
+    # contradicted a record it named. See `truth.named_contradictions`.
+    outcomes.append(
+        Outcome(
+            check="every reply is true of the records it names",
+            passed=not falsehoods,
+            detail="; ".join(falsehoods[:3]),
+        )
+    )
     if timeline is not None and any(p.kind not in PROVIDER_KINDS for p in scenario.perturbations):
         # A scenario whose fault never landed did not test what it claimed, and
         # passes for the wrong reason — which is worse than failing, because

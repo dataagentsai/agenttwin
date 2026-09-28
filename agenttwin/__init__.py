@@ -9,6 +9,7 @@ system whose test results mean nothing.
 
 from agenttwin.actor import Determinism, Rule, ScriptedActor, StateMachineActor, Transcript
 from agenttwin.approver import Approver, Decide, Decision, Review
+from agenttwin.binding import Binding, BindingNotFound, load_binding
 from agenttwin.checks import Check, Outcome
 from agenttwin.desk import Answer, Close, Desk, Handled
 from agenttwin.loader import load
@@ -31,10 +32,12 @@ from agenttwin.projection import (
     authority_check,
     project,
 )
+from agenttwin.provider import ModelEndpoint, ProviderTwin, Upstream
 from agenttwin.record import RunRecord, diff
+from agenttwin.runner import ScenarioResult, run_one, run_suite
 from agenttwin.scenario import Clock, Scenario
 from agenttwin.scenario import run as run_scenario
-from agenttwin.scenario_file import ScenarioFile, load_scenario
+from agenttwin.scenario_file import ModelTurnFile, ScenarioFile, load_scenario
 from agenttwin.subject import Offstage, OffstageFactory, Queue, Queued, Say, Subject
 from agenttwin.suite import (
     Unrunnable,
@@ -49,6 +52,16 @@ from agenttwin.truth import Contradiction, answer_is_true, contradictions
 from agenttwin.world import World
 
 __all__ = [
+    "Binding",
+    "BindingNotFound",
+    "load_binding",
+    "ModelEndpoint",
+    "ModelTurnFile",
+    "ProviderTwin",
+    "Upstream",
+    "ScenarioResult",
+    "run_one",
+    "run_suite",
     "Approver",
     "Check",
     "Outcome",

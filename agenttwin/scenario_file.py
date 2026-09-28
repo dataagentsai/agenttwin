@@ -22,15 +22,17 @@ handed an agent it knows nothing about beyond `handle`.
       - {effect: issue_refund, on: AB-10003, times: 1}
       - {row: order, id: AB-10003, field: status, equals: refunded}
 
-**What a scenario may not do** is name a tool, a scope, a model or an endpoint.
-Those are the binding's, and a scenario that named one would run against exactly
-one implementation, which is the thing being escaped.
+**What a scenario may not do** is name a scope, a model, an endpoint, or a tool
+the specification does not declare. Those are the binding's, and a scenario that
+named one would run against exactly one implementation, which is the thing being
+escaped. The tools it may name are the specification's operations, which every
+implementation is offered by the same projected world.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -209,6 +211,45 @@ class GenerateFile(BaseModel):
     """The row to plant it in."""
 
 
+class ModelTurnFile(BaseModel):
+    """One scripted answer from the model: words, tool calls, or both.
+
+    **Why the script is in the file.** It used to be Python in the reference's
+    test suite, built from that agent's own response types, so only that agent
+    could be driven by it. Declared here, the provider twin serves it over the
+    OpenAI-compatible wire, and any implementation that talks to a model through
+    that wire is driven by the same answers.
+
+        model:
+          - calls: [{get_order: {id: AB-10003}}]
+          - says: That order was delivered.
+            times: 3
+
+    Answers are served in order, one per model call, whatever the request said —
+    the script is the model's side of the conversation, not a policy. A call
+    beyond the last answer is an **overrun**: the implementation reached the
+    model more often than the scenario's author expected, and the runner says so.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    says: str = ""
+    calls: tuple[dict[str, dict[str, Any]], ...] = ()
+    """Each `{operation: arguments}`, one key per entry, in the order the model
+    asks for them."""
+    times: int = Field(default=1, ge=1)
+    """How many consecutive model calls get this same answer."""
+
+    @model_validator(mode="after")
+    def _says_or_calls(self) -> ModelTurnFile:
+        if not self.says and not self.calls:
+            raise ValueError("a model turn says something, calls something, or both")
+        for call in self.calls:
+            if len(call) != 1:
+                raise ValueError(f"a call names exactly one operation, got {sorted(call)}")
+        return self
+
+
 class ScenarioFile(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -258,7 +299,16 @@ class ScenarioFile(BaseModel):
     desk: DeskFile | None = None
     perturbations: tuple[PerturbationFile, ...] = ()
     generate: GenerateFile | None = None
+    model: tuple[ModelTurnFile, ...] = ()
+    """What the model answers, in order, when the run is scripted. **Empty means
+    the model must not be called at all** — a scenario answered by a
+    deterministic route proves that from outside, because any model call is an
+    overrun. Ignored by a live run, where a real model answers."""
     expect: tuple[Check, ...] = ()
+
+    def scripted_answers(self) -> tuple[ModelTurnFile, ...]:
+        """The script expanded by `times`: one entry per model call it answers."""
+        return tuple(turn for turn in self.model for _ in range(turn.times))
 
 
 def load_scenario(path: Path) -> ScenarioFile:
@@ -284,4 +334,11 @@ def load_scenario(path: Path) -> ScenarioFile:
     return scenario
 
 
-__all__ = ["API_VERSION", "ActorFile", "InvalidScenario", "ScenarioFile", "load_scenario"]
+__all__ = [
+    "API_VERSION",
+    "ActorFile",
+    "InvalidScenario",
+    "ModelTurnFile",
+    "ScenarioFile",
+    "load_scenario",
+]

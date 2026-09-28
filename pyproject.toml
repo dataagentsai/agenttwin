@@ -7,6 +7,9 @@ dependencies = [
     "pydantic>=2.9",
     "pyyaml>=6.0",
     "mcp>=1.9",
+    "starlette>=0.40",
+    "uvicorn>=0.30",
+    "httpx2>=2.0",
 ]
 
 [project.optional-dependencies]

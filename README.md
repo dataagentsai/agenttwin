@@ -61,6 +61,9 @@ tractable ones.
 | `truth.py` | whether an answer is true of the world it was produced in |
 | `omission.py` | what was owed and never said — the failure logs cannot show |
 | `perturbation.py` | slowness, channel errors, stale reads, timeline control |
+| `provider.py` | the provider twin — an OpenAI-compatible model endpoint, scripted or forwarding, with the scenario's provider faults |
+| `binding.py` | the one entry point an implementation supplies: `(live, *, wrap, clock, model) -> Subject` |
+| `runner.py`, `__main__.py` | `python -m agenttwin run` — a suite against any binding, five statuses, overruns reported |
 
 ## The contract that matters most
 
