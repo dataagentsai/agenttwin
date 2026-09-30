@@ -94,7 +94,10 @@ class Check(BaseModel):
     """An entity name: does the reply claim anything about `id` that this row
     says is false."""
     reply: Literal["says", "never_says"] | None = None
-    text: str | None = None
+    text: str | list[str] | None = None
+    """A list is *any of these* for `says` and *none of these* for
+    `never_says`: the AOAS states what the customer must be told, rarely the
+    words, and two implementations that say it differently are both right."""
 
     @model_validator(mode="after")
     def _exactly_one_kind(self) -> Check:
@@ -191,7 +194,8 @@ class Check(BaseModel):
         if self.truthful is not None:
             wrong = contradictions(live, self.truthful, self.id or "", reply)
             return Outcome(check=name, passed=not wrong, detail="; ".join(str(w) for w in wrong))
-        said = (self.text or "").lower() in reply.lower()
+        texts = [self.text] if isinstance(self.text, str) else list(self.text or [])
+        said = any(t.lower() in reply.lower() for t in texts)
         return Outcome(
             check=name, passed=said if self.reply == "says" else not said, detail=reply[:120]
         )
