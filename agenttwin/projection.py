@@ -221,7 +221,10 @@ def project(
     `"ecom"` until 2026-09-28 — the name one world happened to choose — so a
     binding that never passed it worked only against worlds that had copied
     that name, and failed against the first scaffolded one, which names the
-    system after the AOAS's own external.
+    system after the AOAS's own external. It may also be the AOAS external a
+    system `projects`, which is the only name an agent built from the AOAS can
+    know: generation run 2 named `order_system` and met a world whose stand-in
+    for it is keyed `ecom`.
 
     `unknown_record="result"` is the recommended mode: it lets a caller tell
     "no such record" (the AOAS failure mode `unknown_record`) from the server
@@ -273,10 +276,18 @@ def project(
                 f"({', '.join(sorted(live.world.systems))}); name the one to project"
             )
         name = next(iter(live.world.systems))
-    srv = MCPServer(name)
     system = live.world.systems.get(name)
     if system is None:
-        raise KeyError(f"world {live.world.name!r} declares no system {name!r}")
+        # The AOAS's external name, which is all a generated agent can know:
+        # the world's own key for the stand-in is the world author's choice.
+        standing_in = [k for k, s in live.world.systems.items() if s.projects == name]
+        if len(standing_in) != 1:
+            raise KeyError(
+                f"world {live.world.name!r} declares no system {name!r}"
+                + (f", and {len(standing_in)} project it" if standing_in else "")
+            )
+        system = live.world.systems[standing_in[0]]
+    srv = MCPServer(name)
 
     required = dict(scopes or {})
     guarded = _checked(authorise) if authorise is not None else None

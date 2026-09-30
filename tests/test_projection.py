@@ -74,9 +74,36 @@ async def test_a_hook_returning_a_non_mapping_says_so_to_the_caller(tmp_path: Pa
     assert "must return the session as a mapping" in text(result)
 
 
+# ------------------------------------------------------ which system
+
+# [name, the name asked for, error or None]. The world keys its stand-in
+# `branch-stock`; the AOAS calls the contract `catalogue` (generation run 2
+# met the same split as `ecom` / `order_system`).
+NAMES = [
+    ("the world's own key", "branch-stock", None),
+    ("the AOAS external it projects", "catalogue", None),
+    ("neither", "archive", r"declares no system 'archive'"),
+]
+
+
+@pytest.mark.parametrize(("name", "asked", "error"), NAMES, ids=[n[0] for n in NAMES])
+async def test_a_system_is_found_by_its_key_or_the_contract_it_projects(
+    tmp_path: Path, name: str, asked: str, error: str | None
+) -> None:
+    world = copy.deepcopy(WORLD)
+    world["systems"] = {"branch-stock": world["systems"]["catalogue"]}
+    live = Live.start(load(write(tmp_path, copy.deepcopy(SPEC), world)))
+    if error:
+        with pytest.raises(KeyError, match=error):
+            project(live, name=asked)
+        return
+    result = await call(project(live, name=asked, unknown_record="result"), "get_loan", {"id": "L-1"}, MINE)
+    assert result.structured_content["found"] is True
+
+
 # ------------------------------------------------------ unknown, readably
 
-MINE = {SESSION_META: {"member_id": "M-1"}}
+MINE ={SESSION_META: {"member_id": "M-1"}}
 
 # [name, mode, key, readable result or None for isError]
 UNKNOWN = [
