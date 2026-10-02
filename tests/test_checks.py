@@ -36,3 +36,32 @@ def test_a_reply_check(name: str, kind: str, text: str | list[str], reply: str, 
 def test_a_reply_check_needs_something_to_look_for(text: object) -> None:
     with pytest.raises(ValueError, match="needs the text"):
         Check.model_validate({"reply": "says", "text": text})
+
+
+# [name, check, calls made, passes] — `at_least` is a floor; `times` an exact count
+CALLS = [
+    ("no count: at least once, and it was", {"called": "get_order"}, 1, True),
+    ("no count: at least once, and it was not", {"called": "get_order"}, 0, False),
+    ("an exact count, met", {"called": "get_order", "times": 3}, 3, True),
+    ("an exact count, one short", {"called": "get_order", "times": 3}, 2, False),
+    ("an exact count, one over", {"called": "get_order", "times": 3}, 4, False),
+    ("a floor, met exactly", {"called": "get_order", "at_least": 2}, 2, True),
+    ("a floor, passed", {"called": "get_order", "at_least": 2}, 3, True),
+    ("a floor, one short", {"called": "get_order", "at_least": 2}, 1, False),
+]
+
+
+@pytest.mark.parametrize(("name", "spec", "made", "passes"), CALLS, ids=[c[0] for c in CALLS])
+def test_a_called_check(name: str, spec: dict, made: int, passes: bool) -> None:
+    check = Check.model_validate(spec)
+    assert check.evaluate(None, {}, "", {"get_order": made}).passed is passes  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [{"called": "get_order", "times": 2, "at_least": 2}, {"effect": "issue_refund", "at_least": 1}],
+    ids=["with times", "on an effect"],
+)
+def test_at_least_belongs_on_a_called_check_alone(spec: dict) -> None:
+    with pytest.raises(ValueError, match="at_least goes on a called check"):
+        Check.model_validate(spec)

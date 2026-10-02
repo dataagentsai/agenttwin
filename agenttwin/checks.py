@@ -8,7 +8,7 @@ closed:
 
 | Check | Asks | Answered by |
 |---|---|---|
-| `called` | was this tool called, this many times | the timeline's call counts |
+| `called` | was this tool called, this many times (`times`) or at least this many (`at_least`) | the timeline's call counts |
 | `handed_off` | did a person end up holding this, this many times | what the offstage desk saw |
 | `decided` | what the reviewer's record says happened | what the offstage approver saw |
 | `effect` | did this operation land on this row, this many times | the world's effect log |
@@ -81,6 +81,11 @@ class Check(BaseModel):
     `on`, which YAML reads as the boolean `true` — which cost the first half hour
     this format was ever used."""
     times: int | None = None
+    at_least: int | None = None
+    """`called` only: a floor rather than a count. An AOAS says a read must
+    happen after something moved, rarely how many reads that takes — and an
+    implementation that re-reads once where another reads twice is not wrong
+    (generation run 3, P-APPROVAL-STALE)."""
 
     row: str | None = None
     """An entity name, with `id` and `field`."""
@@ -118,6 +123,8 @@ class Check(BaseModel):
         ]
         if len(kinds) != 1:
             raise ValueError(f"a check asks exactly one question, not {len(kinds)}: {kinds}")
+        if self.at_least is not None and (self.called is None or self.times is not None):
+            raise ValueError("at_least goes on a called check, in place of times")
         if self.reply is not None and not self.text:
             raise ValueError("a reply check needs the text it is looking for")
         if self.row is not None and not (self.id and self.field):
@@ -133,7 +140,8 @@ class Check(BaseModel):
             return f"the reviewer's record says {self.decided}"
         if self.called:
             times = (
-                "never" if self.times == 0 else f"{self.times}x" if self.times else "at least once"
+                f"at least {self.at_least}x" if self.at_least is not None
+                else "never" if self.times == 0 else f"{self.times}x" if self.times else "at least once"
             )
             return f"{self.called} called {times}"
         if self.effect:
@@ -169,8 +177,11 @@ class Check(BaseModel):
             return Outcome(check=name, passed=found, detail="; ".join(outcomes) or "nothing")
         if self.called is not None:
             made = (calls or {}).get(self.called, 0)
-            want = 1 if self.times is None else self.times
-            ok = made >= 1 if self.times is None else made == want
+            if self.times is not None:
+                ok, want = made == self.times, f"{self.times}"
+            else:
+                floor = 1 if self.at_least is None else self.at_least
+                ok, want = made >= floor, f"at least {floor}"
             return Outcome(check=name, passed=ok, detail=f"called {made}x, wanted {want}")
         if self.effect is not None:
             landed = [e for e in live.effects if e[0] == self.effect]
