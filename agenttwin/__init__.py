@@ -2,7 +2,7 @@
 
 The agent under test is real. Its environment is the twin.
 
-Deliberately outside `support_agent`, and the import contract forbids the agent
+Deliberately outside the agent under test, and an agent should forbid itself
 from importing this package at all. A system that can see its own simulator is a
 system whose test results mean nothing.
 """

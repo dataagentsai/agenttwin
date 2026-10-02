@@ -269,24 +269,8 @@ def project(
         _require_async("authorise", authorise)
     if unknown_record not in ("raise", "result"):
         raise ValueError(f"unknown_record must be 'raise' or 'result', not {unknown_record!r}")
-    if name is None:
-        if len(live.world.systems) != 1:
-            raise KeyError(
-                f"world {live.world.name!r} declares {len(live.world.systems)} systems "
-                f"({', '.join(sorted(live.world.systems))}); name the one to project"
-            )
-        name = next(iter(live.world.systems))
-    system = live.world.systems.get(name)
-    if system is None:
-        # The AOAS's external name, which is all a generated agent can know:
-        # the world's own key for the stand-in is the world author's choice.
-        standing_in = [k for k, s in live.world.systems.items() if s.projects == name]
-        if len(standing_in) != 1:
-            raise KeyError(
-                f"world {live.world.name!r} declares no system {name!r}"
-                + (f", and {len(standing_in)} project it" if standing_in else "")
-            )
-        system = live.world.systems[standing_in[0]]
+    system = _system(live, name)
+    name = name or next(iter(live.world.systems))
     srv = MCPServer(name)
 
     required = dict(scopes or {})
@@ -297,6 +281,34 @@ def project(
         )
 
     return srv
+
+
+def _system(live: Live, name: str | None):
+    """The world's system by its key, or by the AOAS external it `projects`;
+    omitted, the world's only one. `project` and `authority_check` both resolve
+    through here, so a name one accepts the other accepts too: generation run 3
+    found `authority_check` still defaulting to `"ecom"` after `project` had
+    stopped, and SPEC.md's own example crashed every scenario on a scaffolded
+    world."""
+    if name is None:
+        if len(live.world.systems) != 1:
+            raise KeyError(
+                f"world {live.world.name!r} declares {len(live.world.systems)} systems "
+                f"({', '.join(sorted(live.world.systems))}); name the one to project"
+            )
+        name = next(iter(live.world.systems))
+    system = live.world.systems.get(name)
+    if system is not None:
+        return system
+    # The AOAS's external name, which is all a generated agent can know:
+    # the world's own key for the stand-in is the world author's choice.
+    standing_in = [k for k, s in live.world.systems.items() if s.projects == name]
+    if len(standing_in) != 1:
+        raise KeyError(
+            f"world {live.world.name!r} declares no system {name!r}"
+            + (f", and {len(standing_in)} project it" if standing_in else "")
+        )
+    return live.world.systems[standing_in[0]]
 
 
 def _is_async(hook: object) -> bool:
@@ -353,7 +365,7 @@ def authority_check(
     *,
     scopes: Mapping[str, str] | None = None,
     approval: ApprovalCheck | None = None,
-    system: str = "ecom",
+    system: str | None = None,
 ) -> AuthorityCheck:
     """A ready-made scope-and-authority check for an `authorise` hook to call.
 
@@ -389,9 +401,7 @@ def authority_check(
     unchecked so the projection answers it as unknown — refusing it here would
     tell a stranger the row exists and what it is worth.
     """
-    world_system = live.world.systems.get(system)
-    if world_system is None:
-        raise KeyError(f"world {live.world.name!r} declares no system {system!r}")
+    world_system = _system(live, system)
     required = dict(scopes or {})
     if approval is not None:
         _require_async("approval", approval)

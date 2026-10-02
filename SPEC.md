@@ -259,6 +259,38 @@ generated cases ran*. Until 26 September 2026 it ran the scenario once with
 nothing planted and let it pass — generation run 2 saw twelve declared
 injection cases claim AAC-0058 on zero attacks.
 
+## What a scenario's checks read
+
+A check asks one question, of one thing, at the end of the run. Generation run 3
+learned three of the rows below by probing; they are stated here so nobody has to.
+
+| Check | Reads | Exactly |
+|---|---|---|
+| `called: <tool>` | the timeline's call counts, **reads included** | `times: n` is an exact count, `at_least: n` a floor; neither means at least once |
+| `effect: <operation>` | the world's effect log — writes only | optionally on one `key`; `times` as above, `times: 0` is *never* |
+| `row`, `id`, `field`, `equals` | that row now | plain equality with the value written |
+| `world: unchanged` | the **whole** world's snapshot against its start | includes what time moves: with `step_days` above zero a field that `advances` changes and this fails though the agent did nothing — assert on the rows you care about instead |
+| `owed: satisfied` | the omission oracle over the **whole** world | every row the world owes, the customer's or not — a world seeded at every boundary owes more than one scenario is about, so give this check a world with exactly the owed rows the scenario means |
+| `truthful: <entity>`, `id` | the last reply against that row | a claim the row says is false fails it; silence passes |
+| `reply: says` / `never_says`, `text` | **the last reply only** | case-blind substring; a list is *any of these* for `says`, *none of these* for `never_says` |
+| `handed_off: n` | the colleague's `handled` record | **distinct escalations** the desk picked up, waited on or answered — not how many times it looked |
+| `decided: <word>` | the reviewer's `reviewed` record | the word appears in any outcome it recorded: `granted` · `denied` · `waiting` · `refused` |
+
+Asked of every scenario whatever it declares: no reply, on any turn, contradicted
+a record it named.
+
+**The offstage record is the implementation's to keep.** The runner reads two
+attributes off the objects a binding's `OffstageFactory` returns: a colleague's
+`handled` and a reviewer's `reviewed`, each a sequence of what it did on each
+pass, with `escalation_id` or `approval_id` and `outcome`. AgentTwin's `Desk` and
+`Approver` keep them; a binding that brings its own must too, or `handed_off` and
+`decided` read nothing.
+
+**A scenario with a desk states `step_seconds`.** An escalation's window is
+minutes and the default step an hour, so on the default the desk always arrives
+after the lapse. Loading a scenario with a `desk:` and no `step_seconds` is
+refused.
+
 ## Declared, never inferred — and what that buys
 
 A world is told what is true; it infers nothing. Every question a data generator

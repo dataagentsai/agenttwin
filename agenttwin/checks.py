@@ -169,7 +169,10 @@ class Check(BaseModel):
     ) -> Outcome:
         name = self.describe()
         if self.handed_off is not None:
-            seen = len(offstage.get("handed", ())) if offstage else 0
+            # Distinct escalations, not looks: a desk that passes over one while
+            # it waits records it again on the next pass (generation run 3).
+            handed = offstage.get("handed", ()) if offstage else ()
+            seen = len({getattr(h, "escalation_id", h) for h in handed})
             return Outcome(check=name, passed=seen == self.handed_off, detail=f"saw {seen}")
         if self.decided is not None:
             outcomes = [str(o) for o in (offstage.get("reviewed", ()) if offstage else ())]

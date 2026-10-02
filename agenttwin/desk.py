@@ -28,9 +28,9 @@ test chooses:
 
 ## Why the closing function is injected
 
-`agenttwin` must not import `support_agent`; the import contract enforces it in
-one direction and this is the same principle pointing the other way. A simulator
-that imported this agent's escalation module would be a simulator for this agent
+`agenttwin` must not import the agent under test; an import contract enforces it
+in one direction and this is the same principle pointing the other way. A simulator
+that imported an agent's escalation module would be a simulator for that agent
 only. The desk is handed a `close` callable and knows nothing about what it does.
 """
 

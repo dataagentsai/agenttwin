@@ -137,3 +137,42 @@ def test_a_model_block_loads_or_says_why(tmp_path, name, block, error) -> None:
     else:
         with pytest.raises(InvalidScenario, match=error):
             load_scenario(path)
+
+
+# [name, the scenario's offstage part, error or None]. A desk on the default
+# hour tests a colleague arriving too late, so a desk must say how long a turn is.
+OFFSTAGE = [
+    ("no one offstage, default step", {}, None),
+    ("a desk with its step", {"desk": {"resolves": "handled"}, "step_seconds": 60}, None),
+    ("a desk that never comes, with its step", {"desk": {"resolves": "never"}, "step_seconds": 1860}, None),
+    ("a desk on the default step", {"desk": {"resolves": "handled"}}, "has a desk and no step_seconds"),
+    ("a desk on an explicit hour", {"desk": {"resolves": "handled"}, "step_seconds": 3600}, None),
+    ("an approver on the default step", {"approver": {"decides": "grant"}}, None),
+]
+
+
+@pytest.mark.parametrize("name,offstage,error", OFFSTAGE, ids=[o[0] for o in OFFSTAGE])
+def test_a_desk_says_how_long_a_turn_takes(tmp_path, name, offstage, error) -> None:
+    import yaml
+
+    from tests.test_loader import SPEC, WORLD, write
+
+    write(tmp_path, SPEC, WORLD)
+    path = tmp_path / "s.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "apiVersion": "awd-scenario/v0",
+                "scenario": name,
+                "world": "branch.world.yaml",
+                "as": "M-1",
+                **offstage,
+                "expect": [{"world": "unchanged"}],
+            }
+        )
+    )
+    if error is None:
+        load_scenario(path)
+    else:
+        with pytest.raises(InvalidScenario, match=error):
+            load_scenario(path)

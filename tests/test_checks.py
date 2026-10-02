@@ -65,3 +65,25 @@ def test_a_called_check(name: str, spec: dict, made: int, passes: bool) -> None:
 def test_at_least_belongs_on_a_called_check_alone(spec: dict) -> None:
     with pytest.raises(ValueError, match="at_least goes on a called check"):
         Check.model_validate(spec)
+
+
+class _Handled:
+    def __init__(self, escalation_id: str, outcome: str) -> None:
+        self.escalation_id, self.outcome = escalation_id, outcome
+
+
+# [name, what the desk recorded, handed_off wanted, passes] — escalations, not looks
+HANDOFFS = [
+    ("none", [], 0, True),
+    ("one, picked up at once", [_Handled("E-1", "resolved")], 1, True),
+    ("one, waited on and then picked up", [_Handled("E-1", "waiting"), _Handled("E-1", "resolved")], 1, True),
+    ("two", [_Handled("E-1", "resolved"), _Handled("E-2", "resolved")], 2, True),
+    ("two looks at one is not two", [_Handled("E-1", "waiting"), _Handled("E-1", "resolved")], 2, False),
+]
+
+
+@pytest.mark.parametrize(("name", "handed", "want", "passes"), HANDOFFS, ids=[h[0] for h in HANDOFFS])
+def test_handed_off_counts_escalations(name: str, handed: list, want: int, passes: bool) -> None:
+    check = Check.model_validate({"handed_off": want})
+    outcome = check.evaluate(None, {}, "", {}, {"handed": tuple(handed)})  # type: ignore[arg-type]
+    assert outcome.passed is passes

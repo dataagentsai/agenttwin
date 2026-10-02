@@ -285,8 +285,8 @@ class ScenarioFile(BaseModel):
 
     **Set it below the shortest window you want a person to beat.** The default
     is an hour, and an escalation that lapses in thirty minutes is gone before a
-    colleague looks — so a scenario with a desk and no `step_seconds` tests the
-    desk arriving too late, which is a real case and rarely the intended one."""
+    colleague looks — so a scenario with a desk must state it, and loading one
+    that does not is refused."""
     step_days: int = 0
     """How much time passes **in the world** per turn.
 
@@ -331,6 +331,16 @@ def load_scenario(path: Path) -> ScenarioFile:
         raise InvalidScenario(f"{path}: cites a world that is not there — {scenario.world}")
     if not scenario.expect:
         raise InvalidScenario(f"{path}: expects nothing, so it can never fail")
+    if scenario.desk is not None and "step_seconds" not in scenario.model_fields_set:
+        # An escalation's window is minutes and the default step an hour, so a
+        # desk on the default tests a colleague arriving too late — and whether
+        # that passes depends on when an implementation applies the lapse, which
+        # the AOAS says is when the time passes (generation run 3, NOTES).
+        raise InvalidScenario(
+            f"{path}: has a desk and no step_seconds — say how long a turn takes, "
+            "below the escalation window the desk is meant to beat, or above it "
+            "to test the lapse"
+        )
     return scenario
 
 

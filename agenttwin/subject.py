@@ -30,7 +30,12 @@ class Offstage(Protocol):
 
     `await review(at=moment)` — look at the queue once, at scenario time
     `moment` (seconds), and act on whatever is due. `Approver` and `Desk` are
-    the two AgentTwin ships."""
+    the two AgentTwin ships.
+
+    The runner also reads what it did: a colleague's `handled` and a
+    reviewer's `reviewed`, each a sequence of per-pass records carrying
+    `escalation_id` or `approval_id` and `outcome`. `handed_off` and `decided`
+    are judged from them (SPEC, *What a scenario's checks read*)."""
 
     async def review(self, *, at: int | None = None) -> Any: ...
 

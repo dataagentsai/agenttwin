@@ -101,6 +101,26 @@ async def test_a_system_is_found_by_its_key_or_the_contract_it_projects(
     assert result.structured_content["found"] is True
 
 
+# authority_check resolves a system exactly as project does: generation run 3
+# found it still defaulting to "ecom" after project had stopped.
+CHECK_NAMES = [*NAMES, ("omitted, the world's only system", None, None)]
+
+
+@pytest.mark.parametrize(("name", "asked", "error"), CHECK_NAMES, ids=[n[0] for n in CHECK_NAMES])
+async def test_authority_check_finds_a_system_as_project_does(
+    tmp_path: Path, name: str, asked: str | None, error: str | None
+) -> None:
+    world = copy.deepcopy(WORLD)
+    world["systems"] = {"branch-stock": world["systems"]["catalogue"]}
+    live = Live.start(load(write(tmp_path, copy.deepcopy(SPEC), world)))
+    if error:
+        with pytest.raises(KeyError, match=error):
+            authority_check(live, scopes=SCOPES, approval=accepts, system=asked)
+        return
+    check = authority_check(live, scopes=SCOPES, approval=accepts, system=asked)
+    await check("renew", {"id": "L-1"}, {}, session={"member_id": "M-1"}, granted=())
+
+
 # ------------------------------------------------------ unknown, readably
 
 MINE ={SESSION_META: {"member_id": "M-1"}}

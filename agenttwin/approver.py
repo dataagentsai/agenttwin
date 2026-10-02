@@ -1,10 +1,10 @@
 """The second human.
 
-F-007. Doc 26's taxonomy says a human approver is **an actor and a queue**. We
-built the queue — `support_agent.approvals` has expiry, self-approval refusal,
-terminal decisions and a stored idempotency key — and never built the actor.
+A human approver is **an actor and a queue**. An agent builds the queue —
+expiry, self-approval refusal, terminal decisions, an idempotency key — and the
+actor is easy never to build.
 
-So the entire approval path has only ever been exercised against a reviewer who
+Without one, the approval path is only ever exercised against a reviewer who
 is instantaneous, always available, and always says yes. That reviewer does not
 exist. And the path guarded by them is the one that moves real money, which
 makes the least-modelled participant the guard on the highest-value action.
@@ -24,10 +24,10 @@ things a real reviewer does:
 
 ## Why the decision function is injected
 
-`agenttwin` must not import `support_agent`. The import contract enforces one
-direction — the agent cannot see its simulator — and this is the same principle
+`agenttwin` must not import the agent under test. An import contract enforces
+one direction — the agent cannot see its simulator — and this is the same principle
 pointing the other way: a simulator that imported this agent's approval module
-would be a simulator for this agent only.
+would be a simulator for that agent only.
 
 So the actor owns **when** and **what** it decides; the agent's own module owns
 **whether that is allowed**. Which is also the honest division of labour: a human
