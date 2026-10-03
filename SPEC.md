@@ -381,3 +381,17 @@ instead, so the format is tested on a domain it was not written for.
   here; a harness must stamp at the ask for the scenario to be expressible.
   Still out of reach: ageing a belief *without* a slow call, e.g. a model call
   that takes declared time, since the model channel does not move the clock.
+- **A refusal's kind is not yet a field.** A write's precondition failing is a
+  result (`{allowed: false, reason}`), but the hook refusing and every other
+  failure share the error channel, told apart only by the reason's words
+  (generation run 3). The far end's contract will carry the kind —
+  `not_authorised` · `declined` · `transient` — as a field a caller reads, never
+  infers (AHC-0043, the AOAS `declined` failure mode, T-095).
+- **No `decline` perturbation.** `channel_error` stages a fault that may clear;
+  a decline answers the same however often the write is asked, which is how a
+  closed card looks to a refund (P-REFUND-DECLINED). Needed before T-095's
+  scenarios can be written.
+- **No check on what a handoff carries.** `handed_off` counts escalations; it
+  cannot ask whether the double charge the customer raised is in what the person
+  received. A `handoff_mentions` check needs the escalation's content on the
+  desk's `handled` record (AHC-0118, P-CONCERNS, T-093).
