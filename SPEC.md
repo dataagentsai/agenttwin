@@ -172,14 +172,17 @@ same channel, same text but for the key it was asked about.
 ## The runner's contract with an implementation
 
 `run_file(path, subject=...)` drives a declared scenario against a `Subject`
-the binding builds. Generation run 2 found every one of these shapes by calling
+the binding builds. It, `run_one` and the CLI's runner are **coroutines**:
+`await run_file(...)`, or `asyncio.run(...)` from synchronous code — called
+bare, each returns an un-awaited coroutine and every scenario appears to fail
+(generation run 4, NOTES M19). Generation run 2 found every one of these shapes by calling
 with spies (NOTES §8); each is now a `Protocol` in `agenttwin.subject`,
 `agenttwin.approver` or `agenttwin.desk`, exported from `agenttwin`.
 
 | Seam | Shape |
 |---|---|
 | `Subject.say` (`Say`) | `async (text, customer_id, conversation) -> (reply, conversation)`. `conversation` is `None` on the first turn, then whatever the last call returned |
-| `Subject.reviewer` / `Subject.colleague` (`OffstageFactory`) | `(decision, by, delay_s) -> Offstage`, called once per run, synchronously. `decision` is the scenario's `approver.decides` (`grant` · `refuse` · `never` · `grant-twice`) or `desk.resolves` (`handled` · `never`), as written. `None` means the implementation has none, and a scenario needing one raises `Unrunnable` |
+| `Subject.reviewer` / `Subject.colleague` (`OffstageFactory`) | `(decision, by, delay_s) -> Offstage`, called once per run, synchronously. `decision` is the scenario's `approver.decides` (`grant` · `refuse` · `never` · `grant-twice`) or `desk.resolves` (`handled` · `never`), as written — the scenario's words, which are not the enums' names: `grant` → `Decision.GRANT`, `refuse` → `Decision.DENY`, `never` → `Decision.SILENCE`, `grant-twice` → `Decision.GRANT_TWICE`; `handled` → `Answer.HANDLED` (value `resolved`), `never` → `Answer.SILENCE` (generation run 4, NOTES M10). `None` means the implementation has none, and a scenario needing one raises `Unrunnable` |
 | `Subject.opens` | `async (customer_id) -> str` shown on opening, or `None` |
 | `Offstage` | `await review(at=moment)` between turns, `moment` in scenario seconds |
 | `Approver(store, decide)` / `Desk(store, close)` | `store` is a `Queue`: `async pending()` returning items with `.id` and `.created_at` (scenario seconds). An item is acted on once `moment >= created_at + delay_s` |
@@ -391,6 +394,10 @@ instead, so the format is tested on a domain it was not written for.
   a decline answers the same however often the write is asked, which is how a
   closed card looks to a refund (P-REFUND-DECLINED). Needed before T-095's
   scenarios can be written.
+- **The opening has no conversation.** `opens(customer_id)` returns what the
+  customer is shown on opening, but no conversation handle, so the first `say`
+  starts from nothing and what was shown cannot enter the transcript a later
+  turn is answered from (generation run 4, NOTES M18; run 3 found the same).
 - **No check on what a handoff carries.** `handed_off` counts escalations; it
   cannot ask whether the double charge the customer raised is in what the person
   received. A `handoff_mentions` check needs the escalation's content on the
