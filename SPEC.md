@@ -336,6 +336,10 @@ attempt to replace them:
 | Hundreds of injection or jailbreak cases | an adversarial corpus. Generating them is not a world's job; *running* them against a world that refuses correctly is |
 | Tracing, datasets, prompt history | an observability platform |
 
+Which products fill these, and the rest of what AgentTwin adopts rather than
+builds, is named in [ADOPTION.md](ADOPTION.md) — informative, and kept out of
+this format on purpose.
+
 **What a world is for, that none of those do: a stand-in that enforces the
 domain's own preconditions and refuses the way the real system would, and
 oracles that read state rather than asking a model.** That is why the omission
