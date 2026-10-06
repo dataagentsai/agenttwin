@@ -277,6 +277,7 @@ learned three of the rows below by probing; they are stated here so nobody has t
 | `truthful: <entity>`, `id` | the last reply against that row | a claim the row says is false fails it; silence passes |
 | `reply: says` / `never_says`, `text` | **the last reply only** | case-blind substring; a list is *any of these* for `says`, *none of these* for `never_says` |
 | `handed_off: n` | the colleague's `handled` record | **distinct escalations** the desk picked up, waited on or answered — not how many times it looked |
+| `handoff_mentions` | the `context` of what the colleague was handed | each listed text appears (case-blind) — **all** of them, not any; for asking whether every concern the customer raised reached the person (T-093) |
 | `decided: <word>` | the reviewer's `reviewed` record | the word appears in any outcome it recorded: `granted` · `denied` · `waiting` · `refused` |
 
 Asked of every scenario whatever it declares: no reply, on any turn, contradicted
@@ -398,7 +399,3 @@ instead, so the format is tested on a domain it was not written for.
   customer is shown on opening, but no conversation handle, so the first `say`
   starts from nothing and what was shown cannot enter the transcript a later
   turn is answered from (generation run 4, NOTES M18; run 3 found the same).
-- **No check on what a handoff carries.** `handed_off` counts escalations; it
-  cannot ask whether the double charge the customer raised is in what the person
-  received. A `handoff_mentions` check needs the escalation's content on the
-  desk's `handled` record (AHC-0118, P-CONCERNS, T-093).

@@ -10,6 +10,7 @@ closed:
 |---|---|---|
 | `called` | was this tool called, this many times (`times`) or at least this many (`at_least`) | the timeline's call counts |
 | `handed_off` | did a person end up holding this, this many times | what the offstage desk saw |
+| `handoff_mentions` | did what the person was handed carry each of these | the escalations' `context`, as the desk saw them |
 | `decided` | what the reviewer's record says happened | what the offstage approver saw |
 | `effect` | did this operation land on this row, this many times | the world's effect log |
 | `row` | does this field hold this value now | the world's rows |
@@ -63,6 +64,12 @@ class Check(BaseModel):
     implementation. What a person on the other end *saw* is observable, and is
     what the customer's experience actually rests on."""
 
+    handoff_mentions: str | list[str] | None = None
+    """What a person was handed carries each of these — every one, not any one
+    (T-093). The only way a scenario can ask whether the double charge the
+    customer raised reached the colleague, since the record is the agent's and
+    only what the desk was handed is observable."""
+
     decided: str | None = None
     """What the reviewer's record says: `granted` · `denied` · `waiting` ·
     `refused` — the last being a decision the queue rejected, which is how
@@ -110,6 +117,7 @@ class Check(BaseModel):
             k
             for k, v in (
                 ("handed_off", self.handed_off),
+                ("handoff_mentions", self.handoff_mentions),
                 ("decided", self.decided),
                 ("called", self.called),
                 ("effect", self.effect),
@@ -136,6 +144,8 @@ class Check(BaseModel):
     def describe(self) -> str:
         if self.handed_off is not None:
             return f"a person held this {self.handed_off} time(s)"
+        if self.handoff_mentions is not None:
+            return f"what a person was handed mentions {self.handoff_mentions!r}"
         if self.decided:
             return f"the reviewer's record says {self.decided}"
         if self.called:
@@ -174,6 +184,21 @@ class Check(BaseModel):
             handed = offstage.get("handed", ()) if offstage else ()
             seen = len({getattr(h, "escalation_id", h) for h in handed})
             return Outcome(check=name, passed=seen == self.handed_off, detail=f"saw {seen}")
+        if self.handoff_mentions is not None:
+            wanted = (
+                [self.handoff_mentions]
+                if isinstance(self.handoff_mentions, str)
+                else list(self.handoff_mentions)
+            )
+            handed = " ".join(
+                str(getattr(h, "context", "")) for h in (offstage or {}).get("handed", ())
+            ).lower()
+            missing = [w for w in wanted if w.lower() not in handed]
+            return Outcome(
+                check=name,
+                passed=not missing,
+                detail=f"missing {missing}" if missing else "",
+            )
         if self.decided is not None:
             outcomes = [str(o) for o in (offstage.get("reviewed", ()) if offstage else ())]
             found = any(self.decided in o for o in outcomes)

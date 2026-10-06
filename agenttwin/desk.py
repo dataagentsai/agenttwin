@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Awaitable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -101,6 +101,10 @@ class Handled:
     the last when the queue rejected the close, which is how *arrived too late*
     surfaces without the desk having to know the rule that stopped it."""
     detail: str = ""
+    context: str = ""
+    """What the person was handed with it, read off the escalation's `context`
+    where the store keeps one — so a scenario can ask whether each concern the
+    customer raised reached them (`handoff_mentions`, T-093)."""
 
     def __str__(self) -> str:
         return f"{self.escalation_id} {self.outcome}" + (f" ({self.detail})" if self.detail else "")
@@ -182,7 +186,10 @@ class Desk:
 
         seen: list[Handled] = []
         for escalation in list(self.open.values()):
-            picked = await self._pick_up(escalation, moment)
+            picked = replace(
+                await self._pick_up(escalation, moment),
+                context=str(getattr(escalation, "context", "") or ""),
+            )
             if picked.outcome != "waiting":
                 del self.open[escalation.id]
             seen.append(picked)

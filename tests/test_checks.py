@@ -87,3 +87,27 @@ def test_handed_off_counts_escalations(name: str, handed: list, want: int, passe
     check = Check.model_validate({"handed_off": want})
     outcome = check.evaluate(None, {}, "", {}, {"handed": tuple(handed)})  # type: ignore[arg-type]
     assert outcome.passed is passes
+
+
+class _Carried:
+    def __init__(self, escalation_id: str, context: str) -> None:
+        self.escalation_id, self.outcome, self.context = escalation_id, "waiting", context
+
+
+HANDED = (_Carried("E-1", "They raised 3 things: hinge on AB-10003; charged twice; warranty?"),)
+
+# [name, what must be mentioned, what the desk was handed, passes] — every one, not any
+MENTIONS = [
+    ("every concern carried", ["hinge", "charged twice", "warranty"], HANDED, True),
+    ("one alone, carried", "charged twice", HANDED, True),
+    ("case does not matter", ["HINGE"], HANDED, True),
+    ("one of three missing", ["hinge", "refund", "warranty"], HANDED, False),
+    ("nothing handed", ["hinge"], (), False),
+]
+
+
+@pytest.mark.parametrize(("name", "wanted", "handed", "passes"), MENTIONS, ids=[m[0] for m in MENTIONS])
+def test_what_a_person_was_handed(name: str, wanted, handed, passes: bool) -> None:
+    check = Check.model_validate({"handoff_mentions": wanted})
+    outcome = check.evaluate(None, {}, "", {}, {"handed": handed})  # type: ignore[arg-type]
+    assert outcome.passed is passes
