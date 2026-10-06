@@ -388,16 +388,12 @@ instead, so the format is tested on a domain it was not written for.
   here; a harness must stamp at the ask for the scenario to be expressible.
   Still out of reach: ageing a belief *without* a slow call, e.g. a model call
   that takes declared time, since the model channel does not move the clock.
-- **A refusal's kind is not yet a field.** A write's precondition failing is a
-  result (`{allowed: false, reason}`), but the hook refusing and every other
-  failure share the error channel, told apart only by the reason's words
-  (generation run 3). The far end's contract will carry the kind —
-  `not_authorised` · `declined` · `transient` — as a field a caller reads, never
-  infers (AHC-0043, the AOAS `declined` failure mode, T-095).
-- **No `decline` perturbation.** `channel_error` stages a fault that may clear;
-  a decline answers the same however often the write is asked, which is how a
-  closed card looks to a refund (P-REFUND-DECLINED). Needed before T-095's
-  scenarios can be written.
+- **A refusal's kind is a field only where AgentTwin makes the refusal.** An
+  injected `channel_error` answers `kind: transient` and a `decline` answers
+  `kind: declined` (T-095); a write's own precondition failing and the
+  `authorise` hook refusing do not name a kind yet, and the hook's refusal still
+  shares the error channel (generation run 3). `not_authorised` is the kind
+  still to add.
 - **The opening has no conversation.** `opens(customer_id)` returns what the
   customer is shown on opening, but no conversation handle, so the first `say`
   starts from nothing and what was shown cannot enter the transcript a later

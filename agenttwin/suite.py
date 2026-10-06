@@ -26,7 +26,7 @@ from agenttwin.attacks import cases
 from agenttwin.checks import Outcome
 from agenttwin.loader import load
 from agenttwin.personas import brief_for
-from agenttwin.perturbation import ChannelError, LostReply, Slow, StaleRead, Timeline
+from agenttwin.perturbation import ChannelError, Decline, LostReply, Slow, StaleRead, Timeline
 from agenttwin.projection import Live
 from agenttwin.record import RunRecord, diff
 from agenttwin.scenario import Clock
@@ -170,6 +170,14 @@ def timeline_for(scenario: ScenarioFile) -> Timeline:
                     on_call=declared.at_call,
                     channel=declared.channel,
                     message=declared.message,
+                )
+            )
+        elif declared.kind == "decline":
+            faults.append(
+                Decline(
+                    tool=declared.tool,
+                    on_call=declared.at_call,
+                    **({"message": declared.message} if declared.message != "injected fault" else {}),
                 )
             )
         else:

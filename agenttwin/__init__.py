@@ -17,6 +17,7 @@ from agenttwin.omission import Obligation, nothing_was_omitted, omitted, owed
 from agenttwin.personas import PERSONAS, brief_for
 from agenttwin.perturbation import (
     ChannelError,
+    Decline,
     LostReply,
     Slow,
     StaleRead,
@@ -83,6 +84,7 @@ __all__ = [
     "run_generated",
     "timeline_for",
     "ChannelError",
+    "Decline",
     "LostReply",
     "Clock",
     "Contradiction",

@@ -108,6 +108,30 @@ class ChannelError(Perturbation):
 
 
 @dataclass
+class Decline(Perturbation):
+    """Refuse a write for good: the same answer on this call and every one after.
+
+    What a closed card looks like to a refund (P-REFUND-DECLINED, T-095). The
+    far end is reachable and answers promptly; it will never say yes. Unlike
+    `ChannelError`, which fails one call and may clear, a retry here buys the
+    same refusal — so a caller that retries five times and tells the customer to
+    try tomorrow is visible as exactly that.
+
+    The answer is a result, not an error, and it names its kind as a field
+    (`kind: declined`), so the caller never has to infer permanent from the
+    wording (AHC-0043). Nothing in the world moves.
+    """
+
+    message: str = "declined by the payment provider: the original payment method can no longer receive funds"
+
+    def should_fire(self, tool: str, call_number: int) -> bool:
+        return tool == self.tool and call_number >= self.on_call
+
+    def apply(self, live: Live) -> None:
+        self.fired = True
+
+
+@dataclass
 class LostReply(Perturbation):
     """Run the call, then lose the answer on the way back.
 
@@ -201,7 +225,23 @@ def perturbed(live: Live, timeline: Timeline, clock: Any = None) -> Callable:
                     timeline.log.append(f"{perturbation.channel} error on {tool} call {number}")
                     if perturbation.channel == "protocol":
                         raise RuntimeError(perturbation.message)
-                    return {"allowed": False, "reason": perturbation.message, "injected": True}
+                    # `kind` says what a caller may do about it, as a field, so
+                    # nobody infers it from the message (AHC-0043, T-095).
+                    return {
+                        "allowed": False,
+                        "reason": perturbation.message,
+                        "kind": "transient",
+                        "injected": True,
+                    }
+                elif isinstance(perturbation, Decline):
+                    perturbation.apply(live)
+                    timeline.log.append(f"declined {tool} call {number}")
+                    return {
+                        "allowed": False,
+                        "reason": perturbation.message,
+                        "kind": "declined",
+                        "injected": True,
+                    }
 
             result = await handler(**arguments)
 
@@ -234,6 +274,7 @@ def perturbed(live: Live, timeline: Timeline, clock: Any = None) -> Callable:
 
 __all__ = [
     "ChannelError",
+    "Decline",
     "LostReply",
     "Perturbation",
     "Slow",

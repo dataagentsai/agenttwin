@@ -136,6 +136,7 @@ class PerturbationFile(BaseModel):
         "stale_read",
         "slow",
         "channel_error",
+        "decline",
         "lost_reply",
         "provider_throttled",
         "provider_unavailable",
@@ -153,8 +154,10 @@ class PerturbationFile(BaseModel):
 
     channel: Literal["execution", "protocol"] = "execution"
     message: str = "injected fault"
-    """`channel_error` only. The model is expected to recover from an execution
-    error and rarely can from a protocol one, so which is declared matters."""
+    """`channel_error` and `decline`. The model is expected to recover from an
+    execution error and rarely can from a protocol one, so which is declared
+    matters. A `decline` fires on `at_call` and every call to the tool after it:
+    the same refusal however often it is asked (T-095)."""
 
     seconds: float = 0.05
     """`slow` only. A window opener, never a latency measurement."""
