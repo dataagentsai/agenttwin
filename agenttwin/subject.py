@@ -42,7 +42,9 @@ class Offstage(Protocol):
 
 class Queued(Protocol):
     """One item in a queue an offstage human works — an approval or an
-    escalation. Only these two attributes are read."""
+    escalation. These two attributes are read; and from an escalation, its
+    `context` where it has one — what the person is handed, which
+    `handoff_mentions` judges (generation run 5 found this undocumented)."""
 
     @property
     def id(self) -> str: ...
