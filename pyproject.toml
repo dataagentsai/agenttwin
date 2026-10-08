@@ -1,6 +1,6 @@
 [project]
 name = "agenttwin"
-version = "0.4.0"
+version = "0.5.0"
 description = "AgentTwin — twins the agent's world, not the agent. A world-description format and reference runner for Clean AI Engineering."
 requires-python = ">=3.12"
 dependencies = [

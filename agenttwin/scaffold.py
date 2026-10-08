@@ -89,6 +89,27 @@ def _prefix(entity: str) -> str:
     return (letters + entity[1].upper()) if len(letters) == 1 else letters
 
 
+_LITERAL = re.compile(r"^([A-Z][A-Z0-9]*)-")
+_DIGITS = re.compile(r"\[0-9\]\{(\d+)")
+
+
+def _key(prefix: str, n: int, pattern: str | None) -> str:
+    """A key for row `n`, shaped like the field's declared `pattern` (T-099).
+
+    The common shape is a literal prefix and a run of digits — `POL-[0-9]{6}`
+    gives `POL-010001`. A pattern that starts with a character class keeps the
+    scaffold's own prefix. Whatever comes out must match the pattern in full,
+    or the scaffold stops: a world whose ids no customer could type tests a
+    recogniser that will never see them.
+    """
+    literal = _LITERAL.match(pattern or "")
+    digits = _DIGITS.search(pattern or "")
+    key = f"{literal.group(1) if literal else prefix}-{n:0{int(digits.group(1)) if digits else 1}d}"
+    if pattern and not re.fullmatch(pattern, key):
+        raise ValueError(f"cannot make a key matching {pattern!r} (tried {key!r}); give the field a simpler pattern")
+    return key
+
+
 def _default(name: str, spec, n: int) -> Any:
     kind = spec.type
     if kind == "enum":
@@ -162,7 +183,7 @@ def _records(
     ):
         n = next(counter)
         row = {f: _default(f, s, n) for f, s in ce.fields.items()}
-        row[ce.key] = f"{_prefix(customer_entity)}-{1000 + n}"
+        row[ce.key] = _key(_prefix(customer_entity), 1000 + n, ce.fields[ce.key].pattern)
         people.append(Row(row, [who]))
     records[customer_entity] = people
     keys[customer_entity] = [r.values[ce.key] for r in people]
@@ -203,7 +224,7 @@ def _records(
             rows.append(seen[fingerprint])
         # Keys and references, once the set is final.
         for i, row in enumerate(rows):
-            row.values[entity.key] = f"{_prefix(name)}-{10001 + i}"
+            row.values[entity.key] = _key(_prefix(name), 10001 + i, entity.fields[entity.key].pattern)
             for f, target in entity.refs().items():
                 other = target.partition(".")[0]
                 row.values[f] = (keys.get(other) or [""])[0]
@@ -211,7 +232,7 @@ def _records(
         refs_customer = [f for f, t in entity.refs().items() if t.startswith(f"{customer_entity}.")]
         if rows and refs_customer:
             theirs = dict(rows[0].values)
-            theirs[entity.key] = f"{_prefix(name)}-{19001}"
+            theirs[entity.key] = _key(_prefix(name), 19001, entity.fields[entity.key].pattern)
             for f in refs_customer:
                 theirs[f] = keys[customer_entity][1]
             rows.append(Row(theirs, ["the stranger's — the customer may not see or touch it"]))

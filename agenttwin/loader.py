@@ -272,6 +272,7 @@ def _entity(name: str, spec: dict, machines: dict) -> Entity:
         when = f.get("advances_when")
         # Enumerated, and that has now cost four fields: `advances`,
         # `advances_when`, `untrusted` and `fresh_for` were each declared in a
+        # (`pattern` was carried as nothing until the scaffold needed it, T-099)
         # spec, dropped silently here, and found by something downstream behaving
         # as though the declaration did not exist. Anything added to the field
         # vocabulary has to be added here too, and the schema is the list to
@@ -286,6 +287,7 @@ def _entity(name: str, spec: dict, machines: dict) -> Entity:
             advances=f.get("advances"),
             advances_when=Condition(**_local(when, name)) if when else None,
             fresh_for_s=_seconds(f.get("fresh_for")),
+            pattern=f.get("pattern"),
         )
     invariants = tuple(
         Invariant(

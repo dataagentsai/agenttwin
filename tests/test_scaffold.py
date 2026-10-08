@@ -109,3 +109,27 @@ def test_it_does_not_overwrite_without_force(tmp_path: Path) -> None:
     assert scaffold(aoas, out) == []
     assert (out / "gates.yaml").read_text() == "mine\n"
     assert scaffold(aoas, out, force=True)
+
+
+# [name, scaffold prefix, row number, the field's pattern, key made] — T-099:
+# the motor-claims scaffold made PO-10001 for a POL-[0-9]{6} policy id.
+KEYS = [
+    ("no pattern: the scaffold's own prefix", "OR", 10001, None, "OR-10001"),
+    ("a literal prefix and fixed digits", "PO", 10001, "POL-[0-9]{6}", "POL-010001"),
+    ("a character-class prefix keeps the scaffold's", "OR", 10001, "[A-Z]{1,3}-[0-9]{3,8}", "OR-10001"),
+    ("the stranger's row matches too", "CL", 19001, "CLM-[0-9]{6}", "CLM-019001"),
+]
+
+
+@pytest.mark.parametrize(("name", "prefix", "n", "pattern", "key"), KEYS, ids=[k[0] for k in KEYS])
+def test_a_key_is_shaped_like_the_field_pattern(name: str, prefix: str, n: int, pattern, key: str) -> None:
+    from agenttwin.scaffold import _key
+
+    assert _key(prefix, n, pattern) == key
+
+
+def test_a_key_no_pattern_can_produce_stops_the_scaffold() -> None:
+    from agenttwin.scaffold import _key
+
+    with pytest.raises(ValueError, match="cannot make a key"):
+        _key("PO", 10001, "POL-[0-9]{3}")

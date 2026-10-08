@@ -407,11 +407,6 @@ def test_every_field_property_the_schema_declares_is_read_by_the_loader() -> Non
             "for a reader, and there is nothing machine-readable to act on. A world "
             "holds the value; what keeps a seeded one honest is the invariants."
         ),
-        "pattern": (
-            "how a customer writes an identifier in a message, for the agent's "
-            "recogniser. A world holds rows, not words; a seeded id is a key, and "
-            "no row is wrong for being named another way."
-        ),
     }
     declared = set(json.loads(schema_path.read_text())["$defs"]["field"]["properties"])
     source = (Path(__file__).resolve().parents[1] / "agenttwin" / "loader.py").read_text()

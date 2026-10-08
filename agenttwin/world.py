@@ -99,6 +99,11 @@ class Field_(BaseModel):
     advances the world by days advances every field declared here.
     """
 
+    pattern: str | None = None
+    """How a value of this field is written, as a regular expression — an id
+    customers type (`POL-[0-9]{6}`). The scaffold makes keys that match it, so
+    a world's ids look like the ones the agent will be asked about (T-099)."""
+
     fresh_for_s: int | None = None
     """How long a read of this field stays usable, in seconds.
 
