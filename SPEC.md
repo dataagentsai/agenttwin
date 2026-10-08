@@ -157,6 +157,7 @@ should record.
 | read | result | `{found: true, ...row}` |
 | listing | result | `{found: true, items: [...]}` — the rows the session may see |
 | write, allowed | result | `{allowed: true, reason: "allowed", ...row}` |
+| write that creates a row (`creates`) | result | the same, plus `created: {entity, id}` — the new row, keyed by its entity's `pattern` (T-100) |
 | write, a precondition fails | result | `{allowed: false, reason, ...row}` |
 | unknown row, or not the caller's — `unknown_record="result"` | result | `{found: false, allowed: false, reason: "no <entity> <key>"}` |
 | the same — `unknown_record="raise"` (the default) | protocol error (`isError`) | — |

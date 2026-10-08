@@ -270,3 +270,38 @@ async def test_a_hook_using_the_check_refuses_readably_at_the_far_end(tmp_path: 
     approved = await call(srv, "renew", {"id": "L-2"}, {APPROVAL_META: "AP-1"})
     assert not approved.is_error and approved.structured_content["allowed"] is True
     assert live.count("renew") == 1
+
+
+# ------------------------------------------------------ creates (T-100)
+
+# [name, pattern, keys already taken, next key]
+NEXT_KEYS = [
+    ("the first of its kind", "CLM-[0-9]{6}", set(), "CLM-000001"),
+    ("after the highest taken", "CLM-[0-9]{6}", {"CLM-010001", "CLM-010008", "CLM-019001"}, "CLM-019002"),
+    ("a class prefix falls back to the entity, padded to the pattern", "[A-Z]{1,3}-[0-9]{3,8}", {"CLA-7"}, "CLA-008"),
+]
+
+
+@pytest.mark.parametrize(("name", "pattern", "taken", "key"), NEXT_KEYS, ids=[n[0] for n in NEXT_KEYS])
+def test_a_created_row_takes_the_next_key_its_pattern_allows(name: str, pattern: str, taken: set, key: str) -> None:
+    from agenttwin.projection import _next_key
+
+    assert _next_key(pattern, "claim", taken) == key
+
+
+FNOL = Path(__file__).resolve().parents[2] / "clean-ai-engineering/gates/motor-claims-fnol/worlds/motor-claims-fnol.yaml"
+
+
+@pytest.mark.skipif(not FNOL.exists(), reason="the motor-claims world is not checked out alongside")
+async def test_registering_a_claim_creates_it_and_returns_its_reference() -> None:
+    live = Live.start(load(FNOL))
+    before = set(live.rows["claim"])
+    srv = project(live, unknown_record="result")
+    mine = {SESSION_META: {"policyholder_id": "PH-1001"}}
+    result = await call(srv, "register_claim", {"id": "POL-010001", "incident_type": "collision"}, mine)
+    made = result.structured_content["created"]
+    assert made["entity"] == "claim" and made["id"] not in before
+    row = live.rows["claim"][made["id"]]
+    assert (row["status"], row["policy_id"], row["policyholder_id"], row["incident_type"]) == (
+        "registered", "POL-010001", "PH-1001", "collision",
+    )

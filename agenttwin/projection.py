@@ -26,6 +26,8 @@ distinguish the two.
 
 from __future__ import annotations
 
+import re
+
 import copy
 import inspect
 from collections.abc import Awaitable, Callable, Collection, Mapping
@@ -570,7 +572,39 @@ def _apply(
     # is the caller's; the field it lands in is the spec's.
     row.update({field: given[name] for field, name in action.sets_from_input.items()})
     live.effects.append((action_name, str(row[live.world.entities[action.entity].key])))
-    return {"allowed": True, "reason": "allowed", **row}
+    created = _create(live, action, row, given) if action.creates else None
+    return {"allowed": True, "reason": "allowed", **row, **({"created": created} if created else {})}
+
+
+def _create(live: Live, action: Action, row: dict, given: dict[str, Any]) -> dict[str, str]:
+    """Bring the action's new row into being, keyed by its entity's pattern (T-100).
+
+    Returned to the caller as `{entity, id}`: registering a claim is answered
+    with the claim's reference, which is what P-FNOL tells the policyholder.
+    """
+    assert action.creates is not None
+    made = action.creates
+    entity = live.world.entities[made.entity]
+    pattern = entity.fields[entity.key].pattern
+    taken = set(live.rows.setdefault(made.entity, {}))
+    new = {f: None for f in entity.fields}
+    new.update(made.sets)
+    new.update({f: given[name] for f, name in made.sets_from_input.items() if name in given})
+    new.update({f: row.get(src) for f, src in made.from_row.items()})
+    new[entity.key] = _next_key(pattern, made.entity, taken)
+    live.rows[made.entity][new[entity.key]] = new
+    return {"entity": made.entity, "id": new[entity.key]}
+
+
+def _next_key(pattern: str | None, entity: str, taken: set[str]) -> str:
+    """The next free key the entity's pattern allows: its literal prefix and the
+    next number after the highest taken."""
+    literal = re.match(r"^([A-Z][A-Z0-9]*)-", pattern or "")
+    digits = re.search(r"\[0-9\]\{(\d+)", pattern or "")
+    prefix = literal.group(1) if literal else entity[:3].upper()
+    numbers = [int(k.rsplit("-", 1)[1]) for k in taken if k.startswith(f"{prefix}-") and k.rsplit("-", 1)[1].isdigit()]
+    width = int(digits.group(1)) if digits else 1
+    return f"{prefix}-{(max(numbers) + 1 if numbers else 1):0{width}d}"
 
 
 def _idempotency_key(ctx: Context | None) -> str | None:

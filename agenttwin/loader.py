@@ -43,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from agenttwin.spec import InvalidSpec, load_spec
 from agenttwin.world import (
     Action,
+    Creates,
     Condition,
     Entity,
     Fidelity,
@@ -223,6 +224,12 @@ def compose(wf: WorldFile, doc: dict) -> World:
                 # document counted down — dropped with nothing said.
                 miss(f"effect: {effect}", "a prose effect: the call is recorded, and the world changes nothing it says")
 
+            made = None
+            if op.get("creates"):
+                spec_c = op["creates"]
+                c_sets = {f: v for f, v in (spec_c.get("sets") or {}).items() if not (isinstance(v, str) and v.startswith("$"))}
+                c_from = {f: v[1:] for f, v in (spec_c.get("sets") or {}).items() if isinstance(v, str) and v.startswith("$") and v[1:] in declared}
+                made = Creates(entity=spec_c["entity"], sets=c_sets, sets_from_input=c_from, from_row=dict(spec_c.get("from_row") or {}))
             shown = s.presents.get(op_name, Presentation())
             actions[op_name] = Action(
                 entity=op["entity"],
@@ -235,6 +242,7 @@ def compose(wf: WorldFile, doc: dict) -> World:
                 inputs=inputs,
                 sets=sets,
                 sets_from_input=from_input,
+                creates=made,
                 description=shown.description,
                 **({"refusal": shown.refusal} if shown.refusal is not None else {}),
             )

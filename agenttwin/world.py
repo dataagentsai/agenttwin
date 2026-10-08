@@ -276,6 +276,22 @@ class _Known(dict):  # type: ignore[type-arg]
         return "unknown"
 
 
+class Creates(BaseModel):
+    """A row of another entity an action brings into being (T-100).
+
+    Registering a claim acts on a policy and makes a claim: the AOAS could only
+    set fields on the row an operation acts on, so the claim never appeared and
+    its reference never came back."""
+
+    model_config = ConfigDict(frozen=True)
+
+    entity: str
+    sets: dict[str, Any] = Field(default_factory=dict)
+    sets_from_input: dict[str, str] = Field(default_factory=dict)
+    from_row: dict[str, str] = Field(default_factory=dict)
+    """New row's field → a field of the row the action acts on."""
+
+
 class Action(BaseModel):
     """A tool the world exposes, and when it is allowed.
 
@@ -337,6 +353,9 @@ class Action(BaseModel):
 
     def visible_to(self, row: dict, session: Mapping[str, object] | None) -> bool:
         return all(c.holds(row, session) for c in self.session_when)
+
+    creates: Creates | None = None
+    """A row of another entity this action brings into being, if any (T-100)."""
 
     sets_from_input: dict[str, str] = Field(default_factory=dict)
     """Field → the input whose value it takes. The spec writes these `$name`;
