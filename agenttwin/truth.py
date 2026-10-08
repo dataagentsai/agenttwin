@@ -53,7 +53,18 @@ from dataclasses import dataclass
 from agenttwin.projection import Live
 from agenttwin.world import Entity
 
-SUBJECT = r"(?:your|the|this|that)?\s*(?:order|item|package|parcel|it)(?:\s+[A-Z]{1,3}-\d{3,8})?"
+NOUNS = ("order", "item", "package", "parcel", "it")
+"""Generic nouns a reply names a record by. The world's own entity names are
+added per check (T-099: "your claim CLM-010007 is under assessment" went
+unread, because the nouns were a clothing store's)."""
+
+
+def _subject(noun: str = "") -> str:
+    nouns = (*NOUNS, *([noun.replace("_", " ")] if noun else []))
+    return rf"(?:your|the|this|that)?\s*(?:{'|'.join(map(re.escape, nouns))})(?:\s+[A-Z]{{1,3}}-\d{{3,8}})?"
+
+
+SUBJECT = _subject()
 """The optional identifier matters: the deterministic route answers *"Order
 AB-10001 is currently shipped"*, and a subject pattern that stopped at the noun
 would miss every reply the agent produces without calling the model at all."""
@@ -98,20 +109,20 @@ class Contradiction:
         return f"said {self.field} is {self.claimed!r} when it is {self.actual!r} ({self.phrase!r})"
 
 
-def _pattern(value: str) -> re.Pattern[str]:
+def _pattern(value: str, noun: str = "") -> re.Pattern[str]:
     """`out_for_delivery` is written *out for delivery* by anything human."""
     spoken = re.escape(value.replace("_", " ")).replace(r"\ ", r"\s+")
-    return re.compile(rf"{SUBJECT}\s+{COPULA}{spoken}\b", re.I)
+    return re.compile(rf"{_subject(noun)}\s+{COPULA}{spoken}\b", re.I)
 
 
-def claims(reply: str, entity: Entity) -> tuple[Claim, ...]:
+def claims(reply: str, entity: Entity, noun: str = "") -> tuple[Claim, ...]:
     """Every affirmative state assertion in the reply, per declared enum field."""
     found: list[Claim] = []
     for name, spec in entity.fields.items():
         if spec.type != "enum":
             continue
         for value in spec.values:
-            for match in _pattern(value).finditer(reply):
+            for match in _pattern(value, noun).finditer(reply):
                 run_up = reply[max(0, match.start() - LOOKBACK) : match.start()]
                 if GUARDS.search(run_up) or GUARDS.search(match.group(0)):
                     continue  # explaining a rule, not reporting a fact
@@ -133,7 +144,7 @@ def contradictions(live: Live, entity: str, key: str, reply: str) -> tuple[Contr
             actual=str(row[claim.field]),
             phrase=claim.phrase,
         )
-        for claim in claims(reply, spec)
+        for claim in claims(reply, spec, entity)
         if claim.field in row and str(row[claim.field]) != claim.value
     )
 

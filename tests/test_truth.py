@@ -45,3 +45,21 @@ def test_a_reply_is_judged_on_the_records_it_names(tmp_path, name, reply, held, 
         before["loan"]["L-1"]["status"] = held
     found = named_contradictions(live, reply, held=before)
     assert [key for _, key, _ in found] == expected
+
+
+# [name, reply, the state, the entity's noun, read as a claim] — T-099: the
+# subject nouns were a clothing store's, so a claims agent's replies went unread.
+SUBJECTS = [
+    ("the entity's own noun", "Your claim CLM-010007 is under assessment.", "under_assessment", "claim", True),
+    ("an entity with an underscore", "The payout account is active.", "active", "payout_account", True),
+    ("the generic nouns still work", "Order AB-10001 has shipped.", "shipped", "order", True),
+    ("another entity's noun is not this one", "Your policy is active.", "active", "claim", False),
+    ("'it' stands for any record", "It is still under assessment.", "under_assessment", "claim", True),
+]
+
+
+@pytest.mark.parametrize(("name", "reply", "value", "noun", "read"), SUBJECTS, ids=[s[0] for s in SUBJECTS])
+def test_a_reply_is_read_by_the_entity_s_own_noun(name: str, reply: str, value: str, noun: str, read: bool) -> None:
+    from agenttwin.truth import _pattern
+
+    assert bool(_pattern(value, noun).search(reply)) is read

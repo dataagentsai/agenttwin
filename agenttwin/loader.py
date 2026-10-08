@@ -216,6 +216,12 @@ def compose(wf: WorldFile, doc: dict) -> World:
                             f"sets {field} from input {value}",
                             f"{value[1:]!r} is not one of this operation's declared inputs",
                         )
+            elif isinstance(effect, str) and effect:
+                # Reported, never dropped (SPEC): a prose effect is one the world
+                # cannot apply, so a check that waits for it waits forever. T-099
+                # found two — a claim registered on a policy, and a missing
+                # document counted down — dropped with nothing said.
+                miss(f"effect: {effect}", "a prose effect: the call is recorded, and the world changes nothing it says")
 
             shown = s.presents.get(op_name, Presentation())
             actions[op_name] = Action(

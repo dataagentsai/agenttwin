@@ -423,3 +423,20 @@ def test_every_field_property_the_schema_declares_is_read_by_the_loader() -> Non
     # reading is an exemption that has outlived its truth.
     stale = sorted(p for p in carries_nothing if re.search(rf'"{p}"', body))
     assert stale == [], f"exempted and read anyway: {stale}"
+
+
+# [name, the note_due_date effect, reported as unenforced] — T-099: prose
+# effects were dropped with nothing said.
+EFFECTS = [
+    ("a field set from an input is enforced", {"due_note": "$note"}, False),
+    ("a prose effect is reported", "a reminder is sent to the member", True),
+]
+
+
+@pytest.mark.parametrize(("name", "effect", "reported"), EFFECTS, ids=[e[0] for e in EFFECTS])
+def test_a_prose_effect_is_reported_never_dropped(tmp_path: Path, name: str, effect, reported: bool) -> None:
+    spec = copy.deepcopy(SPEC)
+    spec["operations"]["note_due_date"]["effect"] = effect
+    world = load(write(tmp_path, spec, copy.deepcopy(WORLD)))
+    prose = [u for u in world.unenforced if u.operation == "note_due_date" and "prose" in u.reason]
+    assert bool(prose) is reported
