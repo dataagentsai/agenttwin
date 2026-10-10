@@ -3,8 +3,13 @@
 **Twins the agent's world, not the agent.** The agent under test is real; its
 environment is the twin.
 
-Status: **working draft 0.1.0.** Extracted from the reference implementation on
+Status: **working draft 0.7.0.** Extracted from the reference implementation on
 11 September 2026, where it was built alongside the agent it exercises.
+
+```bash
+uv run pytest                                   # the format and simulator's own suite
+uv run python -m agenttwin run --help           # run a suite against an agent binding
+```
 
 ---
 
@@ -89,6 +94,11 @@ lending library, so the format is tested on a domain it was not written for.
 Most of the integration tests that drive a real agent against a world also stay
 there permanently.
 
+## Citing
+
+Cite the release you used. Metadata is in [CITATION.cff](CITATION.cff); GitHub's
+"Cite this repository" button renders it as APA or BibTeX.
+
 ## Licence
 
-Code under [Apache 2.0](LICENSE). Specification prose under CC BY 4.0.
+Code under [Apache 2.0](LICENSE). Specification prose under [CC BY 4.0](LICENSE-SPEC.txt).
