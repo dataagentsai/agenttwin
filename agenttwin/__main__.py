@@ -2,6 +2,8 @@
 
     run       drive scenario files against an implementation's binding
     scaffold  start AgentTwin for a new agent from its AOAS
+              (--pairwise: only the scenarios a suite is missing — pairs and transitions)
+    coverage  which pairs and state-machine transitions a scenario set covers
 
 Run from the implementation's own directory and environment, because the
 binding imports the implementation:
@@ -20,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -80,11 +83,52 @@ def _run(args: argparse.Namespace) -> int:
 def _scaffold(args: argparse.Namespace) -> int:
     from agenttwin.scaffold import scaffold
 
+    if args.pairwise:
+        return _pairwise(args)
     written = scaffold(Path(args.aoas), Path(args.out), force=args.force)
     for path in written:
         print(f"  wrote {path}")
     if not written:
         print("  nothing written: every file already exists (--force to overwrite)")
+    return 0
+
+
+def _pairwise(args: argparse.Namespace) -> int:
+    """Skeletons for what the agent's own scenarios miss. The covering function
+    is bound here, at the edge: `agenttwin.coverage` never imports allpairspy."""
+    from agenttwin.coverage import report, scenario_files, skeletons, write_skeletons
+    from agenttwin.pairwise import allpairs
+    from agenttwin.spec import load_spec
+
+    out = Path(args.out)
+    scenarios = out / "scenarios"
+    world = Path(args.world) if args.world else None
+    if world is None:
+        agent = load_spec(Path(args.aoas))["agent"]["id"]
+        short = re.sub(r"^support-agent-?", "", agent) or agent  # as scaffold names it
+        world = out / "worlds" / f"{short}.yaml"
+    if not world.is_file():
+        print(f"no world at {world}: run scaffold first, or pass --world", file=sys.stderr)
+        return 2
+    against = [Path(p) for p in args.against] or ([scenarios] if scenarios.is_dir() else [])
+    rep = report(Path(args.aoas), scenario_files(against))
+    files = skeletons(rep, world, scenarios, allpairs)
+    written = write_skeletons(files, scenarios, force=args.force)
+    for path in written:
+        print(f"  wrote {path}")
+    print(f"  {len(written)} skeleton(s); {len(files) - len(written)} already there")
+    return 0
+
+
+def _coverage(args: argparse.Namespace) -> int:
+    import json
+
+    from agenttwin.coverage import render, report, scenario_files
+
+    rep = report(Path(args.aoas), scenario_files(Path(p) for p in args.scenarios))
+    print(render(rep, top=args.top))
+    if args.json:
+        Path(args.json).write_text(json.dumps(rep.summary(), indent=2) + "\n")
     return 0
 
 
@@ -108,7 +152,26 @@ def main(argv: list[str] | None = None) -> int:
     scaffold.add_argument("aoas", help="the agent's AOAS file")
     scaffold.add_argument("--out", required=True, help="the agent's repository")
     scaffold.add_argument("--force", action="store_true", help="overwrite existing files")
+    scaffold.add_argument(
+        "--pairwise",
+        action="store_true",
+        help="write only the scenarios the suite is missing: pairwise and transition skeletons",
+    )
+    scaffold.add_argument("--world", help="--pairwise: the world they run in")
+    scaffold.add_argument(
+        "--against",
+        nargs="*",
+        default=[],
+        help="--pairwise: the scenarios already there (default: OUT/scenarios)",
+    )
     scaffold.set_defaults(func=_scaffold)
+
+    coverage = commands.add_parser("coverage", help="pairs and transitions a scenario set covers")
+    coverage.add_argument("aoas", help="the agent's AOAS file")
+    coverage.add_argument("scenarios", nargs="+", help="scenario files, or directories of them")
+    coverage.add_argument("--json", help="write the summary as JSON here")
+    coverage.add_argument("--top", type=int, default=10, help="how many missing values to list")
+    coverage.set_defaults(func=_coverage)
 
     args = parser.parse_args(argv)
     return args.func(args)
