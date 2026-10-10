@@ -38,6 +38,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agenttwin.checks import Check
+from agenttwin.loader import CalendarFile, InvalidWorld, _check_calendar, _event, _seconds, load
+from agenttwin.world import CalendarEvent
 
 API_VERSION = "awd-scenario/v0"
 
@@ -253,6 +255,42 @@ class ModelTurnFile(BaseModel):
         return self
 
 
+class ScenarioEventFile(CalendarFile):
+    """A calendar entry a scenario plants **before its first turn** (0.9.0).
+
+    The world's own calendar runs on a day's clock; a scenario has no day, only
+    turns. So a scenario's entry fires at t0, after the world is started and
+    before anybody speaks, and `at` may only say so (`0`, `0s`, `0h`, or
+    omitted). The point is the `record_only` entry: the record says one thing,
+    the world's truth another, and the scenario asks whether the agent repeats
+    the record as fact. The lab found exactly that (the carrier marks an
+    undelivered parcel delivered and the agent states the scan); this is how
+    the incident becomes a scenario a fix must turn green.
+
+        calendar:
+          - id: carrier-marks-it-delivered
+            entity: order
+            where: [{field: id, equals: [AB-10001]}]
+            sets: {status: delivered}
+            record_only: true
+            by: carrier
+
+    Same vocabulary as the world file's `calendar`, and the same load-time
+    checks (entity owned, fields declared, enum values legal).
+    """
+
+    at: str = "0s"
+
+    @model_validator(mode="after")
+    def _at_t0(self) -> ScenarioEventFile:
+        if _seconds(self.at) != 0:
+            raise ValueError(
+                f"calendar entry {self.id!r} is at {self.at!r}: a scenario's calendar fires "
+                "at t0, before the first turn — a later moment belongs in a world's calendar"
+            )
+        return self
+
+
 class ScenarioFile(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -307,7 +345,15 @@ class ScenarioFile(BaseModel):
     the model must not be called at all** — a scenario answered by a
     deterministic route proves that from outside, because any model call is an
     overrun. Ignored by a live run, where a real model answers."""
+    calendar: tuple[ScenarioEventFile, ...] = ()
+    """Entries fired at t0, in order, before the first turn (0.9.0). With
+    `record_only`, the record lies and the truth stays: every check that judges
+    a reply reads `Live.truth()`, so repeating the lie fails the scenario."""
     expect: tuple[Check, ...] = ()
+
+    def events(self) -> tuple[CalendarEvent, ...]:
+        """The scenario's calendar as the world's `CalendarEvent`s, for `fire`."""
+        return tuple(_event(entry) for entry in self.calendar)
 
     def scripted_answers(self) -> tuple[ModelTurnFile, ...]:
         """The script expanded by `times`: one entry per model call it answers."""
@@ -334,6 +380,8 @@ def load_scenario(path: Path) -> ScenarioFile:
         raise InvalidScenario(f"{path}: cites a world that is not there — {scenario.world}")
     if not scenario.expect:
         raise InvalidScenario(f"{path}: expects nothing, so it can never fail")
+    if scenario.calendar:
+        _check_scenario_calendar(path, scenario)
     if scenario.desk is not None and "step_seconds" not in scenario.model_fields_set:
         # An escalation's window is minutes and the default step an hour, so a
         # desk on the default tests a colleague arriving too late — and whether
@@ -347,11 +395,32 @@ def load_scenario(path: Path) -> ScenarioFile:
     return scenario
 
 
+def _check_scenario_calendar(path: Path, scenario: ScenarioFile) -> None:
+    """The world-file checks, against the world the scenario cites: an entry on
+    an entity no system owns, over a field the entity lacks, or setting a value
+    outside its enum is refused here, not mid-run."""
+    ids = [entry.id for entry in scenario.calendar]
+    if len(ids) != len(set(ids)):
+        raise InvalidScenario(f"{path}: a calendar entry is declared twice: {ids}")
+    try:
+        world = load(path.parent / scenario.world)
+        _check_calendar(world.model_copy(update={"calendar": scenario.events()}))
+    except InvalidWorld as exc:
+        raise InvalidScenario(f"{path}: {exc}") from exc
+    clash = set(ids) & {event.id for event in world.calendar}
+    if clash:
+        raise InvalidScenario(
+            f"{path}: calendar entry {sorted(clash)} is already the world's — name it apart, "
+            "or an incident's root could not say which one made the record lie"
+        )
+
+
 __all__ = [
     "API_VERSION",
     "ActorFile",
     "InvalidScenario",
     "ModelTurnFile",
+    "ScenarioEventFile",
     "ScenarioFile",
     "load_scenario",
 ]

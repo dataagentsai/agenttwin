@@ -73,6 +73,16 @@ def toy(*, retries: int = 1, reviewer: bool = False, broken: bool = False):
 RENEWS = [{"calls": [{"renew": {"id": "L-1"}}]}, {"says": "Renewed.", "times": 2}]
 RENEWED = [{"row": "loan", "id": "L-1", "field": "status", "equals": "renewed"}]
 
+LIES = {
+    "id": "scanner-marks-it-returned",
+    "by": "returns scanner",
+    "entity": "loan",
+    "where": [{"field": "id", "equals": ["L-1"]}],
+    "sets": {"status": "returned", "days_overdue": 0},
+    "record_only": True,
+}
+"""A scenario's t0 calendar entry: the record says returned, the book is still out."""
+
 # [name, scenario overrides, binding, status, overran]
 CASES = [
     ("a scripted renewal lands", {"model": RENEWS, "expect": RENEWED}, toy(), "passed", 0),
@@ -122,6 +132,51 @@ CASES = [
     (
         "a reply false about a record it names fails, whatever the scenario checks",
         {"model": [{"says": "L-1: it is returned."}], "expect": [{"world": "unchanged"}]},
+        toy(),
+        "failed",
+        0,
+    ),
+    # ---- 0.9.0: a scenario plants a lying record at t0; replies are judged on the truth
+    (
+        "repeating a record the scanner made lie fails",
+        {
+            "calendar": [LIES],
+            "model": [{"says": "L-1: it is returned."}],
+            "expect": [{"world": "unchanged"}],
+        },
+        toy(),
+        "failed",
+        0,
+    ),
+    (
+        "the same words after a real change pass",
+        {
+            "calendar": [{**LIES, "record_only": False}],
+            "model": [{"says": "L-1: it is returned."}],
+            "expect": [{"world": "unchanged"}, {"truthful": "loan", "id": "L-1"}],
+        },
+        toy(),
+        "passed",
+        0,
+    ),
+    (
+        "saying whose word the record is passes",
+        {
+            "calendar": [LIES],
+            "model": [{"says": "The returns scanner scanned L-1 as returned."}],
+            "expect": [{"truthful": "loan", "id": "L-1"}],
+        },
+        toy(),
+        "passed",
+        0,
+    ),
+    (
+        "the truthful check reads the truth, not the record",
+        {
+            "calendar": [LIES],
+            "model": [{"says": "Your loan is returned."}],
+            "expect": [{"truthful": "loan", "id": "L-1"}],
+        },
         toy(),
         "failed",
         0,

@@ -231,7 +231,10 @@ class Check(BaseModel):
             missed = omitted(live, world_0)
             return Outcome(check=name, passed=not missed, detail="; ".join(str(m) for m in missed))
         if self.truthful is not None:
-            wrong = contradictions(live, self.truthful, self.id or "", reply)
+            # Against the truth, not the record (0.9.0): a record a `record_only`
+            # calendar entry made lie is not what happened.
+            judged = Live(world=live.world, rows=live.truth()) if live.diverged else live
+            wrong = contradictions(judged, self.truthful, self.id or "", reply)
             return Outcome(check=name, passed=not wrong, detail="; ".join(str(w) for w in wrong))
         texts = [self.text] if isinstance(self.text, str) else list(self.text or [])
         said = any(t.lower() in reply.lower() for t in texts)

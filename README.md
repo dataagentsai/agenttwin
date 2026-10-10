@@ -4,7 +4,7 @@ AgentTwin tests an AI agent by placing the real agent in a simulated world (its
 customers, the systems it calls, their data and their faults) and then checking
 what actually changed in that world, not only what the agent said.
 
-**Status: version 0.8.0, released 11 October 2026, a working draft.**
+**Status: version 0.9.0, released 11 October 2026, a working draft.**
 
 - **Done:** the world format, AWD (Agent World Description: [SPEC.md](SPEC.md),
   [schema/](schema/)). Also done: the loader, and the simulator that presents a
@@ -12,7 +12,7 @@ what actually changed in that world, not only what the agent said.
   Protocol) tool server. Scripted customers and approvers, injected faults
   (slowness, lost replies, stale reads), state checks that catch what was owed
   and never done, and the `agenttwin run` command are all in place. The suite
-  has 210 passing tests.
+  has 264 passing tests.
 - **Planned:** most of the outside tools AgentTwin intends to adopt rather than
   build. Of those listed in [ADOPTION.md](ADOPTION.md), only **Hypothesis**
   (generated edge-case values) and **pytest** (the test runner) are adopted so

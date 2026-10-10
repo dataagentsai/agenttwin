@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this work, please cite it as below."
 type: software
 title: "AgentTwin: a world-description format and simulator for testing AI agents"
-version: "0.8.0"
+version: "0.9.0"
 date-released: "2026-10-11"
 authors:
   - given-names: Basant
