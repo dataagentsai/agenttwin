@@ -1,17 +1,64 @@
 # AgentTwin
 
-**Twins the agent's world, not the agent.** The agent under test is real; its
-environment is the twin.
+AgentTwin tests an AI agent by placing the real agent in a simulated world (its
+customers, the systems it calls, their data and their faults) and then checking
+what actually changed in that world, not only what the agent said.
 
-Status: **working draft 0.7.0.** Extracted from the reference implementation on
-11 September 2026, where it was built alongside the agent it exercises.
+**Status: version 0.7.0, released 10 October 2026, a working draft.**
+
+- **Done:** the world format, AWD (Agent World Description: [SPEC.md](SPEC.md),
+  [schema/](schema/)). Also done: the loader, and the simulator that presents a
+  world as the systems an agent calls, including as an MCP (Model Context
+  Protocol) tool server. Scripted customers and approvers, injected faults
+  (slowness, lost replies, stale reads), state checks that catch what was owed
+  and never done, and the `agenttwin run` command are all in place. The suite
+  has 210 passing tests.
+- **Planned:** most of the outside tools AgentTwin intends to adopt rather than
+  build. Of those listed in [ADOPTION.md](ADOPTION.md), only **Hypothesis**
+  (generated edge-case values) and **pytest** (the test runner) are adopted so
+  far. A model-played customer, LLM graders, generated attacks, realistic data
+  volume, network faults and record-and-replay are still planned or being
+  evaluated.
+- The worked example worlds live with the
+  [reference agent](https://github.com/dataagentsai/reference-agent). This
+  repository's own tests use a lending library, so the format is tested on a
+  domain it was not written for.
+
+**Run it** (needs [uv](https://docs.astral.sh/uv/), which fetches Python 3.12+):
 
 ```bash
-uv run pytest                                   # the format and simulator's own suite
-uv run python -m agenttwin run --help           # run a suite against an agent binding
+git clone https://github.com/dataagentsai/agenttwin && cd agenttwin
+uv run --extra dev pytest      # the format and simulator's own suite, about 10 seconds
 ```
 
+**Part of a family.** Six public repositories that together specify, build and
+test AI agents:
+
+| Repository | Its job |
+|---|---|
+| [AI Assurance Catalog](https://github.com/dataagentsai/ai-assurance-catalog) (AAC) | what must be **true** of an AI application: test obligations |
+| [AI Harness Catalog](https://github.com/dataagentsai/ai-harness-catalog) (AHC) | what must **exist** around the model call: harness capabilities |
+| **AgentTwin** (this repository) | what an agent must **face**: a simulated world to test it in |
+| [Clean AI Engineering](https://github.com/dataagentsai/clean-ai-engineering) | the specs, the four gates and the build-test-fix cycle that join the rest |
+| [Reference Agent](https://github.com/dataagentsai/reference-agent) | the reference implementation: one agent built and tested to all of the above |
+| [AgentTwin Lab](https://github.com/dataagentsai/agenttwin-lab) | the lab: a world that keeps running for days, for testing long-running agents |
+
+**How to cite:** cite the release you used. Metadata is in
+[CITATION.cff](CITATION.cff); GitHub's "Cite this repository" button renders it
+as APA or BibTeX.
+
 ---
+
+## Running a suite against an agent
+
+**Twins the agent's world, not the agent.** The agent under test is real; its
+environment is the twin. AgentTwin was extracted from the reference
+implementation on 11 September 2026, where it was built alongside the agent it
+exercises.
+
+```bash
+uv run python -m agenttwin run --help           # run a suite against an agent binding
+```
 
 ## What this is
 
@@ -69,7 +116,7 @@ tractable ones.
 | `provider.py` | the provider twin — an OpenAI-compatible model endpoint, scripted or forwarding, with the scenario's provider faults |
 | `binding.py` | the one entry point an implementation supplies: `(live, *, wrap, clock, model) -> Subject` |
 | `runner.py`, `__main__.py` | `python -m agenttwin run` — a suite against any binding, five statuses, overruns reported |
-| `scaffold.py` | `python -m agenttwin scaffold <aoas> --out <repo>` — a new agent's world, scenarios, binding and gates file from its AOAS alone |
+| `scaffold.py` | `python -m agenttwin scaffold <aoas> --out <repo>` — a new agent's world, scenarios, binding and gates file from its AOAS (Application Operation Agent Spec) alone |
 
 ## The contract that matters most
 
@@ -93,11 +140,6 @@ lending library, so the format is tested on a domain it was not written for.
 
 Most of the integration tests that drive a real agent against a world also stay
 there permanently.
-
-## Citing
-
-Cite the release you used. Metadata is in [CITATION.cff](CITATION.cff); GitHub's
-"Cite this repository" button renders it as APA or BibTeX.
 
 ## Licence
 
