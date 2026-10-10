@@ -26,10 +26,9 @@ distinguish the two.
 
 from __future__ import annotations
 
-import re
-
 import copy
 import inspect
+import re
 from collections.abc import Awaitable, Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -124,6 +123,13 @@ class Live:
     answered: dict[str, dict] = field(default_factory=dict)
     """Every keyed write's answer, by idempotency key. A repeated key is the same
     request, and gets the same answer without the effect landing twice."""
+    diverged: dict[tuple[str, str, str], tuple[Any, str]] = field(default_factory=dict)
+    """Where the record and what happened disagree: `(entity, key, field)` to
+    `(the true value, the calendar event that made the record lie)`.
+
+    Empty in every world until a `record_only` calendar event fires. A write
+    that lands on the field settles it: the system's own write is what happened.
+    """
 
     @classmethod
     def start(cls, world: World) -> Live:
@@ -138,6 +144,26 @@ class Live:
 
     def get(self, entity: str, key: str) -> dict | None:
         return self.rows.get(entity, {}).get(key)
+
+    def truth(self) -> dict[str, dict[str, dict]]:
+        """The rows as they really are: the record, with every field the record
+        has wrong replaced by what happened. Equal to `snapshot()` until a
+        `record_only` calendar event fires."""
+        rows = self.snapshot()
+        for (entity, key, name), (value, _) in self.diverged.items():
+            if key in rows.get(entity, {}):
+                rows[entity][key][name] = value
+        return rows
+
+    def cause(self, entity: str, key: str, name: str) -> str | None:
+        """The calendar event that made this field of the record wrong, if any."""
+        found = self.diverged.get((entity, key, name))
+        return found[1] if found is not None else None
+
+    def settle(self, entity: str, key: str, names: Collection[str]) -> None:
+        """A write landed on these fields: the record is what happened again."""
+        for name in names:
+            self.diverged.pop((entity, key, name), None)
 
     def count(self, action: str) -> int:
         return sum(1 for a, _ in self.effects if a == action)
@@ -571,7 +597,9 @@ def _apply(
     # An effect the spec writes from an input — `{address: $address}`. The value
     # is the caller's; the field it lands in is the spec's.
     row.update({field: given[name] for field, name in action.sets_from_input.items()})
-    live.effects.append((action_name, str(row[live.world.entities[action.entity].key])))
+    key = str(row[live.world.entities[action.entity].key])
+    live.settle(action.entity, key, [*action.sets, *action.sets_from_input])
+    live.effects.append((action_name, key))
     created = _create(live, action, row, given) if action.creates else None
     return {"allowed": True, "reason": "allowed", **row, **({"created": created} if created else {})}
 

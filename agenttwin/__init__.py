@@ -10,9 +10,19 @@ system whose test results mean nothing.
 from agenttwin.actor import Determinism, Rule, ScriptedActor, StateMachineActor, Transcript
 from agenttwin.approver import Approver, Decide, Decision, Review
 from agenttwin.binding import Binding, BindingNotFound, load_binding
+from agenttwin.calendar import fire
 from agenttwin.checks import Check, Outcome
 from agenttwin.desk import Answer, Close, Desk, Handled
-from agenttwin.loader import load
+from agenttwin.loader import load, with_records
+from agenttwin.monitor import (
+    INCIDENT_FORMAT,
+    Incident,
+    Moment,
+    Monitor,
+    Violation,
+    Watch,
+    default_watches,
+)
 from agenttwin.omission import Obligation, nothing_was_omitted, omitted, owed
 from agenttwin.personas import PERSONAS, brief_for
 from agenttwin.perturbation import (
@@ -50,9 +60,19 @@ from agenttwin.suite import (
     timeline_for,
 )
 from agenttwin.truth import Contradiction, answer_is_true, contradictions
-from agenttwin.world import World
+from agenttwin.world import CalendarEvent, World
 
 __all__ = [
+    "CalendarEvent",
+    "INCIDENT_FORMAT",
+    "Incident",
+    "Moment",
+    "Monitor",
+    "Violation",
+    "Watch",
+    "default_watches",
+    "fire",
+    "with_records",
     "Binding",
     "BindingNotFound",
     "load_binding",

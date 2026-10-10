@@ -131,6 +131,18 @@ WORLD = {
 }
 
 
+CALENDAR = {
+    "id": "the-scanner-marks-loans-returned",
+    "at": "10h",
+    "by": "returns scanner",
+    "entity": "loan",
+    "where": [{"field": "status", "equals": ["open"]}],
+    "pick": 1,
+    "sets": {"status": "renewed"},
+    "record_only": True,
+}
+
+
 def write(tmp_path: Path, spec: dict, world: dict) -> Path:
     (tmp_path / "library.aoas.yaml").write_text(yaml.safe_dump(spec))
     path = tmp_path / "branch.world.yaml"
@@ -228,6 +240,43 @@ CASES = [
         spec_(lambda s: put(s["entities"]["loan"]["invariants"][0]["when"], "field", "late_by")),
         "late_by",
     ),
+    # ---- the calendar (0.8.0): what happens to the world at set times
+    ("a calendar entry loads", world_(lambda w: put(w, "calendar", [CALENDAR])), None),
+    (
+        "a calendar entry on an entity no system owns",
+        world_(lambda w: put(w, "calendar", [{**CALENDAR, "entity": "fine"}])),
+        "acts on 'fine', which no system owns",
+    ),
+    (
+        "a calendar entry setting a field the entity lacks",
+        world_(lambda w: put(w, "calendar", [{**CALENDAR, "sets": {"colour": "red"}}])),
+        "names 'colour', which 'loan' does not have",
+    ),
+    (
+        "a calendar entry selecting on a field the entity lacks",
+        world_(lambda w: put(w, "calendar", [{**CALENDAR, "where": [{"field": "shelf"}]}])),
+        "names 'shelf'",
+    ),
+    (
+        "a calendar entry setting a value outside its enum",
+        world_(lambda w: put(w, "calendar", [{**CALENDAR, "sets": {"status": "lost"}}])),
+        "sets status='lost', which is not one of",
+    ),
+    (
+        "a calendar entry declared twice",
+        world_(lambda w: put(w, "calendar", [CALENDAR, CALENDAR])),
+        "declared twice",
+    ),
+    (
+        "a calendar entry at a time that is not a duration",
+        world_(lambda w: put(w, "calendar", [{**CALENDAR, "at": "ten"}])),
+        "is not a duration",
+    ),
+    (
+        "a calendar entry with a key the format does not have",
+        world_(lambda w: put(w, "calendar", [{**CALENDAR, "keys": ["L-1"]}])),
+        "keys",
+    ),
 ]
 
 
@@ -310,6 +359,7 @@ def test_a_variant_is_its_base_plus_a_merge_patch(tmp_path: Path) -> None:
 
 def test_the_published_schema_accepts_the_fixture_and_refuses_the_domain() -> None:
     jsonschema.validate(WORLD, SCHEMA)
+    jsonschema.validate({**WORLD, "calendar": [CALENDAR]}, SCHEMA)
     for key in ("entities", "actions", "policies"):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate({**WORLD, key: {}}, SCHEMA)

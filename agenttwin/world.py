@@ -415,6 +415,40 @@ class Unenforced(BaseModel):
     reason: str
 
 
+class CalendarEvent(BaseModel):
+    """Something that happens to the world at a set time, whoever is talking.
+
+    A world that keeps running (T-078) has incidents on a calendar: the carrier
+    marks parcels delivered at ten in the morning, whether or not any customer
+    is talking. The event names the rows by a condition, not by key, so it holds
+    for a generated population as well as for hand-written rows: `pick` of the
+    matching rows are chosen with the world's seed.
+
+    **`record_only` is how a record comes to lie.** Usually an event is a real
+    change, and the record and what happened move together. With `record_only`
+    the system of record changes and the world does not: the carrier says
+    *delivered* and the parcel is still on a van. The world keeps the truth
+    beside the record (`Live.truth`), so an oracle can judge a reply against
+    what happened rather than against what a system was told.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    at_s: int
+    """Seconds from the start of the run."""
+    entity: str
+    where: tuple[Condition, ...] = ()
+    pick: int | None = None
+    """How many matching rows, chosen by the world's seed. `None` is all of them."""
+    sets: dict[str, Any] = Field(default_factory=dict)
+    record_only: bool = False
+    by: str = ""
+    """Who writes it — the carrier, the warehouse. Informative: a reader of an
+    incident wants to know which party changed the record."""
+    description: str = ""
+
+
 class World(BaseModel):
     """Everything a scenario runs against."""
 
@@ -428,6 +462,8 @@ class World(BaseModel):
     entities: dict[str, Entity] = Field(default_factory=dict)
     systems: dict[str, System] = Field(default_factory=dict)
     records: dict[str, tuple[dict, ...]] = Field(default_factory=dict)
+    calendar: tuple[CalendarEvent, ...] = ()
+    """What happens to the world at set times (awd/v0, added in 0.8.0)."""
     unenforced: tuple[Unenforced, ...] = ()
 
     def ontology(self) -> dict[str, str]:
@@ -451,6 +487,7 @@ class World(BaseModel):
 
 __all__ = [
     "Action",
+    "CalendarEvent",
     "Condition",
     "Entity",
     "Fidelity",

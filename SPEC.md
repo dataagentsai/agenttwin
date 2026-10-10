@@ -31,9 +31,49 @@ is nothing to drift from.
 | `fidelity` | What the world is faithful about, and — the more useful half — what it is not |
 | `systems` | Which of the spec's external systems each stand-in **projects**, its `resolution` (`mock` · `replay` · `real` · `shadow`), and how it **presents** each operation: its tool description and refusal text |
 | `records` | The rows that exist at t₀, for the entities the projected systems own |
+| `calendar` | What happens to the world at set times, whoever is talking (0.8.0) |
 
 Refusal text is the *system's* words and lives here. What the agent offers
 instead is the spec's `on_refusal` and does not.
+
+## The calendar, and a record that lies
+
+Added in 0.8.0. A world that keeps running has incidents on a calendar: the
+carrier marks parcels delivered at ten in the morning, whether or not anybody is
+talking. Each entry names its rows by condition, not key, so it holds for a
+generated population as well as for written rows:
+
+    calendar:
+      - id: carrier-marks-undelivered-parcels-delivered
+        at: 10h                      # from the start of the run
+        by: carrier
+        entity: order
+        where: [{field: status, equals: [out_for_delivery]}]
+        pick: 3                      # chosen with the world's seed; absent = all
+        sets: {status: delivered}
+        record_only: true
+
+**`record_only` is how a record comes to lie.** Without it an entry is a real
+change. With it the system of record changes and what happened does not: the
+world keeps the truth beside the record (`Live.truth()`), names the entry that
+caused the difference (`Live.cause`), and a write that lands on the field
+settles it. The loader refuses an entry on an entity no system owns, over a
+field the entity lacks, or setting a value outside its enum. When an entry
+fires is the runner's business; `agenttwin.fire` makes it happen.
+
+## The world as a monitor
+
+Added in 0.8.0. The checks below judge a scenario at its end; `Monitor` asks
+four of the same questions **as each call lands and each reply goes out**, for a
+world that never ends: nothing owed left undone past a due time the monitor is
+given (no spec states one yet), every reply true of the records it names —
+judged against the truth, not the record — one customer's rows never shown to
+another, and an irreversible effect at most once per key. A violation is an
+incident record, `agenttwin-incident/v0`: rule, root cause, the customer, turn
+and trace ids, the words, and the named row before and after, as the record has
+it and as it is. Repeats of one rule for one root cause are one incident with
+several occurrences; the root cause of a reply that repeats a lying record is
+the calendar entry that made it lie.
 
 ## Composition
 

@@ -43,8 +43,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from agenttwin.spec import InvalidSpec, load_spec
 from agenttwin.world import (
     Action,
-    Creates,
+    CalendarEvent,
     Condition,
+    Creates,
     Entity,
     Fidelity,
     Field_,
@@ -86,6 +87,23 @@ class SystemFile(BaseModel):
     presents: dict[str, Presentation] = Field(default_factory=dict)
 
 
+class CalendarFile(BaseModel):
+    """One calendar entry as written: `at` is a duration from the run's start
+    (`10h`, `90m`), and `where` is conditions over the entity's own fields."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    at: str
+    entity: str
+    where: tuple[dict, ...] = ()
+    pick: int | None = Field(default=None, ge=1)
+    sets: dict[str, Any] = Field(default_factory=dict)
+    record_only: bool = False
+    by: str = ""
+    description: str = ""
+
+
 class WorldFile(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 
@@ -97,6 +115,7 @@ class WorldFile(BaseModel):
     fidelity: Fidelity = Fidelity()
     systems: dict[str, SystemFile]
     records: dict[str, tuple[dict, ...]] = Field(default_factory=dict)
+    calendar: tuple[CalendarFile, ...] = ()
 
 
 # ------------------------------------------------------------------- loading
@@ -261,7 +280,24 @@ def compose(wf: WorldFile, doc: dict) -> World:
         entities=entities,
         systems=systems,
         records=wf.records,
+        calendar=tuple(_event(e) for e in wf.calendar),
         unenforced=tuple(unenforced),
+    )
+
+
+def _event(entry: CalendarFile) -> CalendarEvent:
+    seconds = _seconds(entry.at)
+    assert seconds is not None
+    return CalendarEvent(
+        id=entry.id,
+        at_s=seconds,
+        entity=entry.entity,
+        where=tuple(Condition(**_local(c, entry.entity)) for c in entry.where),
+        pick=entry.pick,
+        sets=dict(entry.sets),
+        record_only=entry.record_only,
+        by=entry.by,
+        description=entry.description,
     )
 
 
@@ -399,6 +435,55 @@ def _check(world: World) -> None:
                         f"{condition.field!r}, which {action.entity!r} does not have"
                     )
 
+    _check_calendar(world)
+    _check_records(world)
+
+
+def with_records(world: World, records: dict[str, tuple[dict, ...]]) -> World:
+    """The same world with more rows: a population generated for a run.
+
+    Checked exactly as a world file's own rows are — enums, invariants, joins —
+    because a generator is one more way to write a row nobody meant. Rows with a
+    key the world already holds replace it.
+    """
+    merged: dict[str, tuple[dict, ...]] = {}
+    for entity in set(world.records) | set(records):
+        key = world.entities[entity].key if entity in world.entities else "id"
+        rows = {r.get(key): r for r in world.records.get(entity, ())}
+        rows.update({r.get(key): r for r in records.get(entity, ())})
+        merged[entity] = tuple(rows.values())
+    grown = world.model_copy(update={"records": merged})
+    _check_records(grown)
+    return grown
+
+
+def _check_calendar(world: World) -> None:
+    seen: set[str] = set()
+    for event in world.calendar:
+        if event.id in seen:
+            raise InvalidWorld(f"calendar event {event.id!r} is declared twice")
+        seen.add(event.id)
+        entity = world.entities.get(event.entity)
+        if entity is None:
+            raise InvalidWorld(
+                f"calendar event {event.id!r} acts on {event.entity!r}, which no system owns"
+            )
+        for field_name in [c.field for c in event.where] + list(event.sets):
+            if field_name not in entity.fields:
+                raise InvalidWorld(
+                    f"calendar event {event.id!r} names {field_name!r}, "
+                    f"which {event.entity!r} does not have"
+                )
+        for field_name, value in event.sets.items():
+            spec = entity.fields[field_name]
+            if spec.type == "enum" and str(value) not in spec.values:
+                raise InvalidWorld(
+                    f"calendar event {event.id!r} sets {field_name}={value!r}, "
+                    f"which is not one of {spec.values}"
+                )
+
+
+def _check_records(world: World) -> None:
     for entity_name, records in world.records.items():
         if entity_name not in world.entities:
             raise InvalidWorld(f"records declared for unknown entity {entity_name!r}")
@@ -437,4 +522,12 @@ def _check(world: World) -> None:
                     )
 
 
-__all__ = ["API_VERSION", "InvalidWorld", "WorldFile", "compose", "load", "resolve_spec"]
+__all__ = [
+    "API_VERSION",
+    "InvalidWorld",
+    "WorldFile",
+    "compose",
+    "load",
+    "resolve_spec",
+    "with_records",
+]

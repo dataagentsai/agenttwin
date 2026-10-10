@@ -60,6 +60,41 @@
       "type": "object",
       "additionalProperties": { "type": "array", "items": { "type": "object" } },
       "description": "The rows that exist at t0, by entity. Only entities the projected systems own."
+    },
+    "calendar": {
+      "type": "array",
+      "description": "What happens to the world at set times, whoever is talking (agenttwin 0.8.0). Each entry changes the rows of one entity that match `where`. With `record_only` the system of record changes and the world does not: the record now says something that did not happen, and the world keeps the truth beside it.",
+      "items": {
+        "type": "object",
+        "required": ["id", "at", "entity"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "at": { "type": "string", "pattern": "^[0-9]+(s|m|h|d)$", "description": "From the start of the run: 30s, 15m, 10h, 2d." },
+          "entity": { "type": "string", "description": "An entity the world's systems own." },
+          "where": {
+            "type": "array",
+            "description": "Conditions over the entity's own fields; every row matching all of them is a candidate.",
+            "items": {
+              "type": "object",
+              "required": ["field"],
+              "additionalProperties": false,
+              "properties": {
+                "field": { "type": "string" },
+                "equals": { "type": "array" },
+                "not_equals": { "type": "array" },
+                "at_least": { "type": "number" },
+                "at_most": { "type": "number" }
+              }
+            }
+          },
+          "pick": { "type": "integer", "minimum": 1, "description": "How many candidates, chosen with the world's seed. Absent: all of them." },
+          "sets": { "type": "object", "description": "Field to value, as the record will hold it." },
+          "record_only": { "type": "boolean", "description": "The record changes and what happened does not." },
+          "by": { "type": "string", "description": "Who writes it: the carrier, the warehouse." },
+          "description": { "type": "string" }
+        }
+      }
     }
   },
   "not": {

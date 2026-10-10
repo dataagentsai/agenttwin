@@ -4,7 +4,7 @@ AgentTwin tests an AI agent by placing the real agent in a simulated world (its
 customers, the systems it calls, their data and their faults) and then checking
 what actually changed in that world, not only what the agent said.
 
-**Status: version 0.7.0, released 10 October 2026, a working draft.**
+**Status: version 0.8.0, released 11 October 2026, a working draft.**
 
 - **Done:** the world format, AWD (Agent World Description: [SPEC.md](SPEC.md),
   [schema/](schema/)). Also done: the loader, and the simulator that presents a
@@ -112,6 +112,8 @@ tractable ones.
 | `record.py` | the run record, and diffing two of them |
 | `truth.py` | whether an answer is true of the world it was produced in |
 | `omission.py` | what was owed and never said — the failure logs cannot show |
+| `calendar.py` | the world's calendar: an event fired at a set time, including one that makes a record lie (`record_only`) |
+| `monitor.py` | the world as a monitor: four invariants judged as each call lands and each reply goes out; a violation is an incident record (`agenttwin-incident/v0`), de-duplicated by root cause |
 | `perturbation.py` | slowness, channel errors, stale reads, timeline control |
 | `provider.py` | the provider twin — an OpenAI-compatible model endpoint, scripted or forwarding, with the scenario's provider faults |
 | `binding.py` | the one entry point an implementation supplies: `(live, *, wrap, clock, model) -> Subject` |
