@@ -206,6 +206,12 @@ class GenerateFile(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: str = "injection"
+    source: str = "templates"
+    """Where the cases come from (0.11.0): `templates`, the default and every
+    scenario's before it; `pyrit`, PyRIT's deterministic converters over seed
+    injections; `agentdojo`, AgentDojo's attack templates and injection-task
+    goals. A source other than `templates` also states each case's **goal** in
+    this world's terms and judges it by state (`agenttwin.attacks`)."""
     seed: int = 1
     count: int = 10
     into: str

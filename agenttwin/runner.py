@@ -36,6 +36,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agenttwin.attacks import GeneratedCase
 from agenttwin.binding import Binding
 from agenttwin.checks import Outcome
 from agenttwin.loader import load
@@ -46,12 +47,14 @@ from agenttwin.scenario import Clock
 from agenttwin.scenario_file import InvalidScenario, ScenarioFile, load_scenario
 from agenttwin.suite import (
     Unrunnable,
-    attack_cases,
+    generated_cases,
     plant,
     provider_faults,
     run_file,
+    script_for,
     timeline_for,
 )
+from agenttwin.world import World
 
 STATUSES = ("passed", "failed", "unrunnable", "crashed", "invalid")
 RANK = {status: i for i, status in enumerate(STATUSES)}
@@ -61,6 +64,8 @@ RANK = {status: i for i, status in enumerate(STATUSES)}
 class CaseResult:
     case: str
     status: str
+    origin: str = ""
+    """Where a generated case came from (`templates`, `pyrit …`, `agentdojo …`)."""
     outcomes: list[dict[str, Any]] = field(default_factory=list)
     model_calls: int = 0
     overran: int = 0
@@ -120,8 +125,16 @@ async def run_one(
         result.error = "needs a model-driven customer, which only a live run has"
         return result
 
-    for name, payload in attack_cases(scenario) or [("", None)]:
-        case = await _run_case(path, scenario, binding, name, payload, upstream, voice, timeout_s)
+    try:
+        world = load(path.parent / scenario.world)
+        generated = generated_cases(scenario, world) or [None]
+    except Exception as exc:  # noqa: BLE001 — a source that cannot load is a result
+        result.status, result.error = "crashed", f"{type(exc).__name__}: {exc}"
+        return result
+    for generated_case in generated:
+        case = await _run_case(
+            path, scenario, binding, world, generated_case, upstream, voice, timeout_s
+        )
         result.cases.append(case)
     result.status = max((c.status for c in result.cases), key=RANK.__getitem__)
     return result
@@ -131,25 +144,28 @@ async def _run_case(
     path: Path,
     scenario: ScenarioFile,
     binding: Binding,
-    name: str,
-    payload: str | None,
+    world: World,
+    generated: GeneratedCase | None,
     upstream: Upstream | None,
     voice: Voice | None,
     timeout_s: float,
 ) -> CaseResult:
     started = time.monotonic()
-    live = Live.start(load(path.parent / scenario.world))
-    if payload is not None:
-        plant(live, scenario, payload)
+    name = generated.name if generated is not None else ""
+    live = Live.start(world)
+    if generated is not None:
+        plant(live, scenario, generated.payload)
     timeline = timeline_for(scenario)
     clock = Clock(step_s=scenario.step_seconds)
     twin = ProviderTwin(
-        script=() if upstream is not None else scenario.scripted_answers(),
+        script=() if upstream is not None else script_for(scenario, generated),
         faults=provider_faults(scenario),
         clock=clock,
         upstream=upstream,
     )
-    case = CaseResult(case=name, status="passed")
+    case = CaseResult(
+        case=name, status="passed", origin=generated.origin if generated is not None else ""
+    )
     try:
         async with twin:
             wrap = perturbed(live, timeline, clock)
@@ -162,6 +178,7 @@ async def _run_case(
                         timeline=timeline,
                         voice=voice,
                         clock=clock,
+                        case=generated,
                     ),
                     timeout=timeout_s,
                 )

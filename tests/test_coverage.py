@@ -437,8 +437,9 @@ def test_pairwise_without_a_world_says_so(tmp_path: Path, capsys) -> None:
 
 # ------------------------------------------------------- the one constraint
 
-ADOPTED = {"allpairspy", "hypothesis_jsonschema", "hypothesis"}
-ADAPTERS = {"pairwise.py", "promises.py"}
+ADOPTED = {"allpairspy", "hypothesis_jsonschema", "hypothesis", "pyrit", "agentdojo"}
+ADAPTERS = {"pairwise.py", "promises.py", "attack_pyrit.py", "attack_agentdojo.py"}
+ADAPTER_MODULES = {f"agenttwin.{a.removesuffix('.py')}" for a in ADAPTERS}
 
 
 @pytest.mark.parametrize(
@@ -455,8 +456,22 @@ def test_the_core_never_imports_an_adopted_tool(module: str) -> None:
         for a in n.names
     }
     assert not imported & ADOPTED
-    assert (
-        not {"agenttwin.pairwise", "agenttwin.promises"}
-        & {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        or module == "__main__.py"
-    )
+    imported_modules = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
+        a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names
+    }
+    assert not ADAPTER_MODULES & imported_modules or module == "__main__.py"
+
+
+@pytest.mark.parametrize("adapter", ["attack_pyrit.py", "attack_agentdojo.py", "pairwise.py"])
+def test_an_adapter_imports_its_tool_only_where_it_is_called(adapter: str) -> None:
+    """Importing an adapter must not import its tool: `agenttwin.attacks`
+    resolves `pyrit` and `agentdojo` by name, and a missing extra should fail
+    the scenario that asked for it, not the import of the package."""
+    tree = ast.parse((ROOT / "agenttwin" / adapter).read_text())
+    top_level = {
+        (n.module or "").split(".")[0] if isinstance(n, ast.ImportFrom) else a.name.split(".")[0]
+        for n in tree.body
+        if isinstance(n, (ast.Import, ast.ImportFrom))
+        for a in n.names
+    }
+    assert not top_level & ADOPTED

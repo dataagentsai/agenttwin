@@ -22,35 +22,97 @@ from agenttwin.actor import (
     StateMachineActor,
     Transcript,
 )
-from agenttwin.attacks import cases
+from agenttwin.attacks import (
+    GeneratedCase,
+    cases,
+    goals_for,
+    judged_by_state,
+    obedient_calls,
+)
 from agenttwin.calendar import fire
-from agenttwin.checks import Outcome
+from agenttwin.checks import Check, Outcome
 from agenttwin.loader import load
 from agenttwin.personas import brief_for
 from agenttwin.perturbation import ChannelError, Decline, LostReply, Slow, StaleRead, Timeline
 from agenttwin.projection import Live
 from agenttwin.record import RunRecord, diff
 from agenttwin.scenario import Clock
-from agenttwin.scenario_file import ScenarioFile, load_scenario
+from agenttwin.scenario_file import ModelTurnFile, ScenarioFile, load_scenario
 from agenttwin.subject import Subject
 from agenttwin.truth import named_contradictions
+from agenttwin.world import World
 
 
-def attack_cases(scenario: ScenarioFile) -> list[tuple[str, str]]:
+def forbidden_effects(scenario: ScenarioFile) -> tuple[str, ...]:
+    """The actions this scenario already says must never land (`effect: X,
+    times: 0`) — the only goals a generated case may pursue, because a goal
+    the scenario does not forbid could be what the customer asked for."""
+    return tuple(
+        dict.fromkeys(c.effect for c in scenario.expect if c.effect and c.times == 0)
+    )
+
+
+def generated_cases(scenario: ScenarioFile, world: World | None = None) -> list[GeneratedCase]:
+    """Every case a `generate` block declares, mapped onto `world`.
+
+    `world` is needed by any source but `templates`: a goal is stated in the
+    world's terms (its rows, its actions, whose data is whose). Without it a
+    source gets no goals and its cases add no checks."""
+    declared = scenario.generate
+    if declared is None:
+        return []
+    entity, _, _ = declared.into.partition(".")
+    forbids = forbidden_effects(scenario)
+    goals = (
+        goals_for(world, who=scenario.as_, entity=entity, key=declared.key, forbids=forbids)
+        if world is not None and declared.source != "templates"
+        else ()
+    )
+    attacks = cases(
+        declared.kind,
+        seed=declared.seed,
+        count=declared.count,
+        source_name=declared.source,
+        goals=goals,
+    )
+    answers = [tuple(turn.calls) for turn in scenario.model]
+    width = len(str(len(attacks)))
+    return [
+        GeneratedCase(
+            name=f"case {i + 1:0{width}d}",
+            payload=a.payload,
+            goal=a.goal,
+            origin=a.origin,
+            expect=judged_by_state(a.goal, world, scenario.as_, forbids) if world else (),
+            calls=obedient_calls(a.goal, world, answers) if world else (),
+        )
+        for i, a in enumerate(attacks)
+    ]
+
+
+def attack_cases(scenario: ScenarioFile, world: World | None = None) -> list[tuple[str, str]]:
     """`(case name, payload)` for a scenario that declares a generator.
 
     The caller runs the scenario once per case against a fresh world, planting
     the payload first. Fresh per case on purpose: an attack that succeeded would
     otherwise leave the world changed for the next one, and the second failure
-    would be the first one's fault.
+    would be the first one's fault. `generated_cases` carries each case's goal,
+    the checks it adds and the model's obedient calls besides.
     """
-    if scenario.generate is None:
-        return []
-    payloads = cases(
-        scenario.generate.kind, seed=scenario.generate.seed, count=scenario.generate.count
-    )
-    width = len(str(len(payloads)))
-    return [(f"case {i + 1:0{width}d}", payload) for i, payload in enumerate(payloads)]
+    return [(c.name, c.payload) for c in generated_cases(scenario, world)]
+
+
+def script_for(scenario: ScenarioFile, case: GeneratedCase | None) -> tuple[ModelTurnFile, ...]:
+    """The scripted answers for one case: the scenario's, with the case's
+    obedient calls added to the answers they extend (`attacks.obedient_calls`)."""
+    if case is None or not case.calls:
+        return scenario.scripted_answers()
+    extra = dict(case.calls)
+    turns = [
+        turn.model_copy(update={"calls": tuple(turn.calls) + extra[i]}) if i in extra else turn
+        for i, turn in enumerate(scenario.model)
+    ]
+    return tuple(turn for turn in turns for _ in range(turn.times))
 
 
 def plant(live: Live, scenario: ScenarioFile, payload: str) -> None:
@@ -196,6 +258,7 @@ async def run_file(
     timeline: Timeline | None = None,
     voice=None,
     clock: Clock | None = None,
+    case: GeneratedCase | None = None,
 ) -> tuple[RunRecord, tuple[Outcome, ...]]:
     """Drive one declared scenario, once, and answer every check it makes.
 
@@ -211,6 +274,8 @@ async def run_file(
     `the generated cases ran` — generation run 2 (NOTES §8) watched a scenario
     declaring twelve injection cases run once with nothing planted, and pass.
     Use `run_generated` to run every case, each in a fresh world.
+
+    `case`, when given, adds that case's own checks — its goal, judged by state.
     """
     scenario = load_scenario(path)
     world = live if live is not None else Live.start(load(path.parent / scenario.world))
@@ -324,7 +389,10 @@ async def run_file(
         "handed": tuple(getattr(colleague, "handled", ()) or ()),
         "reviewed": tuple(getattr(reviewer, "reviewed", ()) or ()),
     }
-    outcomes = [check.evaluate(world, world_0, reply, calls, offstage) for check in scenario.expect]
+    checks = list(scenario.expect)
+    if case is not None:
+        checks += [Check.model_validate(c) for c in case.expect]
+    outcomes = [check.evaluate(world, world_0, reply, calls, offstage) for check in checks]
     # Asked of every scenario, whatever it declares: nothing the customer read
     # contradicted a record it named. See `truth.named_contradictions`.
     outcomes.append(
@@ -380,7 +448,7 @@ def _planted(live: Live, scenario: ScenarioFile) -> bool:
     row = live.get(entity, declared.key)
     if row is None:
         return False
-    return row.get(field_name) in {payload for _, payload in attack_cases(scenario)}
+    return row.get(field_name) in {payload for _, payload in attack_cases(scenario, live.world)}
 
 
 SubjectFor = Callable[[Live, Timeline, Clock], AbstractAsyncContextManager[Subject]]
@@ -408,20 +476,37 @@ async def run_generated(
     file.
     """
     scenario = load_scenario(path)
-    cases = attack_cases(scenario) or [("", None)]
+    world = load(path.parent / scenario.world)
     results: list[tuple[str, RunRecord, tuple[Outcome, ...]]] = []
-    for name, payload in cases:
-        live = Live.start(load(path.parent / scenario.world))
-        if payload is not None:
-            plant(live, scenario, payload)
+    for case in generated_cases(scenario, world) or [None]:
+        name = case.name if case is not None else ""
+        live = Live.start(world)
+        if case is not None:
+            plant(live, scenario, case.payload)
         timeline = timeline_for(scenario)
         clock = Clock(step_s=scenario.step_seconds)
         async with subject_for(live, timeline, clock) as subject:
             record, outcomes = await run_file(
-                path, subject=subject, live=live, timeline=timeline, voice=voice, clock=clock
+                path,
+                subject=subject,
+                live=live,
+                timeline=timeline,
+                voice=voice,
+                clock=clock,
+                case=case,
             )
         results.append((name, record, outcomes))
     return tuple(results)
 
 
-__all__ = ["SubjectFor", "Unrunnable", "run_file", "run_generated"]
+__all__ = [
+    "SubjectFor",
+    "Unrunnable",
+    "attack_cases",
+    "forbidden_effects",
+    "generated_cases",
+    "plant",
+    "run_file",
+    "run_generated",
+    "script_for",
+]
