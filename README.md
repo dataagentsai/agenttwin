@@ -4,7 +4,7 @@ AgentTwin tests an AI agent by placing the real agent in a simulated world (its
 customers, the systems it calls, their data and their faults) and then checking
 what actually changed in that world, not only what the agent said.
 
-**Status: version 0.10.0, released 11 October 2026, a working draft.**
+**Status: version 0.11.0, released 11 October 2026, a working draft.**
 
 - **Done:** the world format, AWD (Agent World Description: [SPEC.md](SPEC.md),
   [schema/](schema/)). Also done: the loader, and the simulator that presents a
@@ -13,13 +13,18 @@ what actually changed in that world, not only what the agent said.
   (slowness, lost replies, stale reads), state checks that catch what was owed
   and never done, and the `agenttwin run` command are all in place. 0.10.0 adds
   `agenttwin coverage` and `scaffold --pairwise` (which scenarios a suite is
-  missing) and a property test that the stand-in keeps its tool schemas. The
-  suite has 336 passing tests.
+  missing) and a property test that the stand-in keeps its tool schemas. 0.11.0
+  adds attack sources: a scenario's `generate` block can draw its planted
+  instructions from PyRIT or AgentDojo as well as the built-in templates, and
+  each case's goal is judged by what changed in the world. The suite has 365
+  passing tests.
 - **Planned:** most of the outside tools AgentTwin intends to adopt rather than
   build. Of those listed in [ADOPTION.md](ADOPTION.md), only **Hypothesis**
   (generated edge-case values), **pytest** (the test runner), **allpairspy**
-  (pairwise scenario choice) and **hypothesis-jsonschema** (a test dependency)
-  are adopted so far. A model-played customer, LLM graders, generated attacks, realistic data
+  (pairwise scenario choice), **hypothesis-jsonschema** (a test dependency),
+  **PyRIT** (attack text, an optional extra) and **AgentDojo** (attack templates
+  and injection tasks, vendored as data) are adopted so far. A model-played
+  customer, LLM graders, a model-driven red team, realistic data
   volume, network faults and record-and-replay are still planned or being
   evaluated.
 - The worked example worlds live with the

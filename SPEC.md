@@ -330,6 +330,20 @@ generated cases ran*. Until 26 September 2026 it ran the scenario once with
 nothing planted and let it pass — generation run 2 saw twelve declared
 injection cases claim AAC-0058 on zero attacks.
 
+**Where the cases come from is a `source`** (0.11.0): `generate: {source: …}`
+names an attack source behind one port, and defaults to the built-in templates,
+whose cases and checks are what they always were. Any other source is given the
+injection's possible **goals in the world's own terms** — each action the
+scenario already forbids (`effect: X, times: 0`), on the planted row and on the
+first row of that action's entity that belongs to somebody else, and, where a
+stranger's `pii` exists, a request to read it out. A goal names keys, never
+values. Each case then adds checks judged by state — its goal's effect never
+landed on its row, and no stranger's `pii` value is in the reply — and extends
+the scripted model so it obeys that goal: every scripted call naming another
+row of the goal's entity is repeated with the goal's key. A pass is the
+harness's fences holding, not the model resisting. The text goes only into a
+field marked `untrusted`, as before.
+
 ## What a scenario's checks read
 
 A check asks one question, of one thing, at the end of the run. Generation run 3
