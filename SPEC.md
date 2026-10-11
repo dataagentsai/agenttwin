@@ -344,6 +344,24 @@ row of the goal's entity is repeated with the goal's key. A pass is the
 harness's fences holding, not the model resisting. The text goes only into a
 field marked `untrusted`, as before.
 
+**Who plays a model-driven customer is `via`** (0.12.0). `actor: {kind:
+model}` alone is spoken through the binding's voice — the upstream model a
+`--live` run forwards to — and is unrunnable without one. `via: <name>` hands
+the customer to a model actor registered by that name instead, with its own
+`model:` in the form that actor takes (or `AGENTTWIN_ACTOR_MODEL`), so a
+scripted agent can meet a model-played customer and only the customer costs a
+call. It is given the scenario's `situation` (or its `objective`), the
+`persona`'s text from the catalogue, and the conversation so far, never the
+world; it ends at `max_turns`, or when it has nothing to say. Loading refuses
+`via` on any kind but `model`, `model:` without `via` (the customer's model is
+not the agent's, and without `via` the voice picks its own), and a name nobody
+registered. An actor that cannot be had here — its extra missing, or no model
+named — makes the run `unrunnable`, saying why. Whoever plays it, the run is
+`model_driven`: the class is on every result and run record, and the summary
+reports **pass^k** (passed only if all k repeats passed) for such scenarios,
+because one pass is a sample. The checks are the scenario's `expect`, read from
+state, as for every other actor; a simulator's own judge is never consulted.
+
 ## What a scenario's checks read
 
 A check asks one question, of one thing, at the end of the run. Generation run 3

@@ -4,7 +4,7 @@ AgentTwin tests an AI agent by placing the real agent in a simulated world (its
 customers, the systems it calls, their data and their faults) and then checking
 what actually changed in that world, not only what the agent said.
 
-**Status: version 0.11.0, released 11 October 2026, a working draft.**
+**Status: version 0.12.0, released 11 October 2026, a working draft.**
 
 - **Done:** the world format, AWD (Agent World Description: [SPEC.md](SPEC.md),
   [schema/](schema/)). Also done: the loader, and the simulator that presents a
@@ -16,15 +16,20 @@ what actually changed in that world, not only what the agent said.
   missing) and a property test that the stand-in keeps its tool schemas. 0.11.0
   adds attack sources: a scenario's `generate` block can draw its planted
   instructions from PyRIT or AgentDojo as well as the built-in templates, and
-  each case's goal is judged by what changed in the world. The suite has 365
-  passing tests.
+  each case's goal is judged by what changed in the world. 0.12.0 adds a
+  model-played customer: `actor: {kind: model, via: langwatch, model: …}` hands
+  the customer to LangWatch Scenario's user simulator (an optional extra), still
+  judged by state, and every result says whether it was model-driven. The suite
+  has 377 passing tests, and 14 more for the model-played customer where the
+  `langwatch` extra is installed.
 - **Planned:** most of the outside tools AgentTwin intends to adopt rather than
   build. Of those listed in [ADOPTION.md](ADOPTION.md), only **Hypothesis**
   (generated edge-case values), **pytest** (the test runner), **allpairspy**
   (pairwise scenario choice), **hypothesis-jsonschema** (a test dependency),
-  **PyRIT** (attack text, an optional extra) and **AgentDojo** (attack templates
-  and injection tasks, vendored as data) are adopted so far. A model-played
-  customer, LLM graders, a model-driven red team, realistic data
+  **PyRIT** (attack text, an optional extra), **AgentDojo** (attack templates
+  and injection tasks, vendored as data) and **LangWatch Scenario** (a
+  model-played customer, an optional extra, no LangWatch account or upload) are
+  adopted so far. LLM graders, a model-driven red team, realistic data
   volume, network faults and record-and-replay are still planned or being
   evaluated.
 - The worked example worlds live with the
@@ -37,6 +42,17 @@ what actually changed in that world, not only what the agent said.
 ```bash
 git clone https://github.com/dataagentsai/agenttwin && cd agenttwin
 uv run --extra dev pytest      # the format and simulator's own suite, about 10 seconds
+```
+
+The model-played customer's own tests need its extra, which is kept out of
+`dev` (about 380 MB, and it pins an older `openai`, so uv resolves it apart).
+They use a scripted fake for the simulator's model call; one live check against
+Groq's free tier runs only when asked:
+
+```bash
+uv run --extra langwatch --with pytest --with pytest-asyncio pytest tests/test_actor_langwatch.py
+AGENTTWIN_LIVE_ACTOR=1 GROQ_API_KEY=… uv run --extra langwatch --with pytest \
+    --with pytest-asyncio pytest tests/test_actor_langwatch.py -k live
 ```
 
 **Part of a family.** Six public repositories that together specify, build and
@@ -114,7 +130,7 @@ tractable ones.
 | `world.py`, `loader.py` | the composed world, and loading one from a world file plus the spec it cites |
 | `spec.py` | reading an agent spec, resolving `extends` by RFC 7386 merge patch |
 | `projection.py` | projecting world state as the systems a run sees |
-| `actor.py` | scripted and state-machine actors, including the customer |
+| `actor.py` | scripted, state-machine and model-driven actors, including the customer; `MODEL_ACTORS`, the seam a `via:` names |
 | `approver.py`, `desk.py` | the human surface — approval and escalation |
 | `scenario.py` | running a scenario against a projected world |
 | `record.py` | the run record, and diffing two of them |
@@ -129,6 +145,7 @@ tractable ones.
 | `scaffold.py` | `python -m agenttwin scaffold <aoas> --out <repo>` — a new agent's world, scenarios, binding and gates file from its AOAS (Application Operation Agent Spec) alone |
 | `coverage.py` | `python -m agenttwin coverage <aoas> <scenarios>` — which pairs of intent × state × persona × perturbation, and which state-machine transitions, a suite covers; `scaffold --pairwise` writes skeletons for the rest (our own transition walker, GraphWalker's technique) |
 | `pairwise.py` | adapter, outside the core: binds the pairwise choice to **allpairspy** (`pairwise` extra) |
+| `actor_langwatch.py` | adapter, outside the core: a model-played customer from **LangWatch Scenario**'s user simulator (`langwatch` extra, `actor: {kind: model, via: langwatch}`); nothing uploaded |
 | `promises.py` | adapter, test-only: property tests from each tool's `inputSchema` (**hypothesis-jsonschema**) that every answer meets its `outputSchema` and the AOAS's row, and that a refusal is a result |
 
 ## The contract that matters most
