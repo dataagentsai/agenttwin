@@ -51,6 +51,8 @@ def _run(args: argparse.Namespace) -> int:
         if args.quiet:
             return
         note = f"  (model overran its script ×{r.overran})" if r.overran else ""
+        if r.determinism == "model_driven":
+            note += "  (model-driven: one run is a sample — use --repeat for pass^k)"
         print(f"  {r.status:<10} {r.file}{note}")
         for line in (r.failed_checks or ([r.error] if r.error else []))[:4]:
             print(f"             {line.splitlines()[0][:150]}")

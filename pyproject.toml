@@ -29,6 +29,9 @@ pairwise = [
 pyrit = [
     "pyrit>=1.1.0",
 ]
+langwatch = [
+    "langwatch-scenario>=1.6.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -46,3 +49,12 @@ select = ["E", "F", "I", "UP", "B", "SIM", "TID"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 asyncio_mode = "auto"
+
+[tool.uv]
+# LangWatch Scenario pins older openai, huggingface-hub, websockets, filelock and
+# tenacity than the rest of the lock uses. Resolved in its own fork, so adding
+# the extra never moves a version anybody else gets (dev and the core included).
+conflicts = [
+    [{ extra = "langwatch" }, { extra = "dev" }],
+    [{ extra = "langwatch" }, { extra = "pyrit" }],
+]

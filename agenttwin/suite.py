@@ -15,12 +15,14 @@ from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 
 from agenttwin.actor import (
+    ActorUnavailable,
     Determinism,
     ModelActor,
     Rule,
     ScriptedActor,
     StateMachineActor,
     Transcript,
+    model_actor,
 )
 from agenttwin.attacks import (
     GeneratedCase,
@@ -156,6 +158,17 @@ def actor_for(scenario: ScenarioFile, voice=None):
     and this caller cannot run it.
     """
     declared = scenario.actor
+    if declared.kind == "model" and declared.via:
+        try:
+            return model_actor(
+                declared.via,
+                situation=declared.situation or scenario.objective,
+                persona=declared.persona,
+                model=declared.model,
+                max_turns=scenario.max_turns,
+            )
+        except ActorUnavailable as exc:
+            raise Unrunnable(f"{scenario.scenario}: {exc}") from exc
     if declared.kind == "model":
         if voice is None:
             raise Unrunnable(

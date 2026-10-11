@@ -36,6 +36,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agenttwin.actor import Determinism, weakest
 from agenttwin.attacks import GeneratedCase
 from agenttwin.binding import Binding
 from agenttwin.checks import Outcome
@@ -71,6 +72,9 @@ class CaseResult:
     overran: int = 0
     error: str = ""
     seconds: float = 0.0
+    determinism: str = "scripted"
+    """The run record's class (`actor.Determinism`): `model_driven` when a model
+    played the customer, and then one pass is a sample, not a result."""
 
 
 @dataclass
@@ -86,6 +90,11 @@ class ScenarioResult:
     @property
     def overran(self) -> int:
         return sum(c.overran for c in self.cases)
+
+    @property
+    def determinism(self) -> str:
+        """The weakest of its cases': one model-driven case makes the run so."""
+        return weakest(*(Determinism(c.determinism) for c in self.cases)).value
 
     @property
     def failed_checks(self) -> list[str]:
@@ -120,7 +129,7 @@ async def run_one(
         discharges=list(scenario.discharges),
         forces=scenario.forces,
     )
-    if scenario.actor.kind == "model" and voice is None:
+    if scenario.actor.kind == "model" and not scenario.actor.via and voice is None:
         result.status = "unrunnable"
         result.error = "needs a model-driven customer, which only a live run has"
         return result
@@ -170,7 +179,7 @@ async def _run_case(
         async with twin:
             wrap = perturbed(live, timeline, clock)
             async with binding(live, wrap=wrap, clock=clock, model=twin.endpoint) as subject:
-                _, outcomes = await asyncio.wait_for(
+                record, outcomes = await asyncio.wait_for(
                     run_file(
                         path,
                         subject=subject,
@@ -182,6 +191,7 @@ async def _run_case(
                     ),
                     timeout=timeout_s,
                 )
+        case.determinism = record.determinism_class
         checked = list(outcomes)
         if twin.faults:
             checked.append(
@@ -273,7 +283,19 @@ def summary(results: Sequence[ScenarioResult]) -> dict[str, Any]:
         file: round(sum(r.status == "passed" for r in runs) / len(runs), 2)
         for file, runs in by_scenario.items()
     }
-    return {"counts": counts, "pass_rate": rates, "overran": sum(r.overran > 0 for r in results)}
+    # pass^k: a model-driven scenario passes only if every one of its k runs
+    # did. Its pass rate is a sample of a distribution; pass^k is the claim.
+    pass_k = {
+        file: {"k": len(runs), "passed": all(r.status == "passed" for r in runs)}
+        for file, runs in by_scenario.items()
+        if any(r.determinism == Determinism.MODEL_DRIVEN for r in runs)
+    }
+    return {
+        "counts": counts,
+        "pass_rate": rates,
+        "pass^k": pass_k,
+        "overran": sum(r.overran > 0 for r in results),
+    }
 
 
 def to_json(results: Sequence[ScenarioResult], **meta: Any) -> str:
@@ -282,7 +304,12 @@ def to_json(results: Sequence[ScenarioResult], **meta: Any) -> str:
             **meta,
             "summary": summary(results),
             "scenarios": [
-                {**asdict(r), "overran": r.overran, "failed_checks": r.failed_checks}
+                {
+                    **asdict(r),
+                    "determinism": r.determinism,
+                    "overran": r.overran,
+                    "failed_checks": r.failed_checks,
+                }
                 for r in results
             ],
         },

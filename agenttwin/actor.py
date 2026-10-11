@@ -25,8 +25,9 @@ states it. A reader must never have to guess whether a result can be reproduced.
 
 from __future__ import annotations
 
+import importlib
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -158,6 +159,14 @@ class ModelActor:
     function is: this package cannot see the agent's provider adapter, and a
     simulator that imported one would simulate one stack. The binding supplies
     `speak(brief, heard) -> said`.
+
+    **The default model actor.** A scenario that says `kind: model` and no
+    `via` gets this one, speaking through the binding's voice — in a `--live`
+    run, the same upstream model the agent uses. `via: langwatch` (0.12.0)
+    swaps in LangWatch Scenario's user simulator through `MODEL_ACTORS`
+    instead: its own model, named by the scenario, so a scripted agent can
+    meet a model-played customer. Both are `MODEL_DRIVEN`, and both are judged
+    the same way — by state.
     """
 
     determinism = Determinism.MODEL_DRIVEN
@@ -180,6 +189,41 @@ class ModelActor:
         return said
 
 
+class ActorUnavailable(Exception):
+    """A model-driven customer was asked for and cannot be had here: its extra
+    is not installed, or it has no model. The scenario is fine; this
+    environment cannot run it — `Unrunnable`, never a failure."""
+
+
+MODEL_ACTORS: dict[str, Callable[..., object] | str] = {
+    # Default bindings, by name and never by import: each adapter sits outside
+    # the core and is loaded only when a scenario asks for it (ADOPTION.md).
+    "langwatch": "agenttwin.actor_langwatch:actor",
+}
+"""Who else can play a model-driven customer, as `actor: {kind: model, via: …}`
+names them. Without `via`, the customer is a `ModelActor` speaking through the
+binding's voice. A binding can register its own (`MODEL_ACTORS["mine"] = fn`);
+each is called with `situation`, `persona`, `model` and `max_turns` and hands
+back something with `determinism` and `next(reply)`."""
+
+
+def model_actor(via: str, *, situation: str, persona: str, model: str, max_turns: int):
+    """The customer `via` names, or `ActorUnavailable` saying why not."""
+    found = MODEL_ACTORS.get(via)
+    if found is None:
+        raise KeyError(f"no model actor {via!r} — known: {', '.join(sorted(MODEL_ACTORS))}")
+    if isinstance(found, str):
+        module, _, attribute = found.partition(":")
+        found = getattr(importlib.import_module(module), attribute)
+        MODEL_ACTORS[via] = found
+    made = found(situation=situation, persona=persona, model=model, max_turns=max_turns)
+    if getattr(made, "determinism", None) != Determinism.MODEL_DRIVEN:
+        # Declared, never inferred: a model-played customer that labelled itself
+        # anything else would let a run claim a reproducibility it does not have.
+        raise TypeError(f"model actor {via!r} must declare Determinism.MODEL_DRIVEN")
+    return made
+
+
 @dataclass
 class Transcript:
     """What was said, by whom, in order."""
@@ -198,6 +242,8 @@ class Transcript:
 
 
 __all__ = [
+    "MODEL_ACTORS",
+    "ActorUnavailable",
     "Determinism",
     "ModelActor",
     "Rule",
@@ -205,5 +251,6 @@ __all__ = [
     "StateMachineActor",
     "Transcript",
     "Turn",
+    "model_actor",
     "weakest",
 ]

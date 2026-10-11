@@ -37,6 +37,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agenttwin.actor import MODEL_ACTORS
 from agenttwin.checks import Check
 from agenttwin.loader import CalendarFile, InvalidWorld, _check_calendar, _event, _seconds, load
 from agenttwin.world import CalendarEvent
@@ -67,10 +68,35 @@ class ActorFile(BaseModel):
     """`model` only: what this customer is trying to do, in their own terms and
     never in the agent's. A situation naming a tool is a scenario telling the
     customer how the system works."""
+    via: str = ""
+    """`model` only: who plays the customer, by name from
+    `agenttwin.actor.MODEL_ACTORS` (`langwatch`). Empty is the binding's voice
+    (`ModelActor`), which only a live run has."""
+    model: str = ""
+    """`via` only: the *customer's* model, in the form the named actor takes
+    (`groq/openai/gpt-oss-120b`). Never the agent's: the agent's model is the
+    binding's, and this names who plays the person talking to it."""
     opening: str = ""
     rules: tuple[dict[str, str], ...] = ()
     persistence: str = ""
     max_turns: int = 6
+
+    @model_validator(mode="after")
+    def _model_fields_need_a_model_actor(self) -> ActorFile:
+        if self.via and self.kind != "model":
+            raise ValueError(
+                f"via: {self.via} names who plays a model customer; kind is {self.kind}"
+            )
+        if self.model and not self.via:
+            raise ValueError(
+                "model: names the customer's model for a `via` actor; without `via` the "
+                "customer speaks through the binding's voice, which picks its own"
+            )
+        if self.via and self.via not in MODEL_ACTORS:
+            raise ValueError(
+                f"via: no model actor {self.via!r} — known: {', '.join(sorted(MODEL_ACTORS))}"
+            )
+        return self
 
 
 Concern = Literal[
