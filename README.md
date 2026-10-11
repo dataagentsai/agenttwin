@@ -4,19 +4,22 @@ AgentTwin tests an AI agent by placing the real agent in a simulated world (its
 customers, the systems it calls, their data and their faults) and then checking
 what actually changed in that world, not only what the agent said.
 
-**Status: version 0.9.0, released 11 October 2026, a working draft.**
+**Status: version 0.10.0, released 11 October 2026, a working draft.**
 
 - **Done:** the world format, AWD (Agent World Description: [SPEC.md](SPEC.md),
   [schema/](schema/)). Also done: the loader, and the simulator that presents a
   world as the systems an agent calls, including as an MCP (Model Context
   Protocol) tool server. Scripted customers and approvers, injected faults
   (slowness, lost replies, stale reads), state checks that catch what was owed
-  and never done, and the `agenttwin run` command are all in place. The suite
-  has 264 passing tests.
+  and never done, and the `agenttwin run` command are all in place. 0.10.0 adds
+  `agenttwin coverage` and `scaffold --pairwise` (which scenarios a suite is
+  missing) and a property test that the stand-in keeps its tool schemas. The
+  suite has 334 passing tests.
 - **Planned:** most of the outside tools AgentTwin intends to adopt rather than
   build. Of those listed in [ADOPTION.md](ADOPTION.md), only **Hypothesis**
-  (generated edge-case values) and **pytest** (the test runner) are adopted so
-  far. A model-played customer, LLM graders, generated attacks, realistic data
+  (generated edge-case values), **pytest** (the test runner), **allpairspy**
+  (pairwise scenario choice) and **hypothesis-jsonschema** (a test dependency)
+  are adopted so far. A model-played customer, LLM graders, generated attacks, realistic data
   volume, network faults and record-and-replay are still planned or being
   evaluated.
 - The worked example worlds live with the
@@ -119,6 +122,9 @@ tractable ones.
 | `binding.py` | the one entry point an implementation supplies: `(live, *, wrap, clock, model) -> Subject` |
 | `runner.py`, `__main__.py` | `python -m agenttwin run` — a suite against any binding, five statuses, overruns reported |
 | `scaffold.py` | `python -m agenttwin scaffold <aoas> --out <repo>` — a new agent's world, scenarios, binding and gates file from its AOAS (Application Operation Agent Spec) alone |
+| `coverage.py` | `python -m agenttwin coverage <aoas> <scenarios>` — which pairs of intent × state × persona × perturbation, and which state-machine transitions, a suite covers; `scaffold --pairwise` writes skeletons for the rest (our own transition walker, GraphWalker's technique) |
+| `pairwise.py` | adapter, outside the core: binds the pairwise choice to **allpairspy** (`pairwise` extra) |
+| `promises.py` | adapter, test-only: property tests from each tool's `inputSchema` (**hypothesis-jsonschema**) that every answer meets its `outputSchema` and the AOAS's row, and that a refusal is a result |
 
 ## The contract that matters most
 
