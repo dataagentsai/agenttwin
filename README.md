@@ -14,7 +14,7 @@ what actually changed in that world, not only what the agent said.
   and never done, and the `agenttwin run` command are all in place. 0.10.0 adds
   `agenttwin coverage` and `scaffold --pairwise` (which scenarios a suite is
   missing) and a property test that the stand-in keeps its tool schemas. The
-  suite has 334 passing tests.
+  suite has 336 passing tests.
 - **Planned:** most of the outside tools AgentTwin intends to adopt rather than
   build. Of those listed in [ADOPTION.md](ADOPTION.md), only **Hypothesis**
   (generated edge-case values), **pytest** (the test runner), **allpairspy**
