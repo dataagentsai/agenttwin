@@ -32,6 +32,10 @@ what actually changed in that world, not only what the agent said.
   adopted so far. LLM graders, a model-driven red team, realistic data
   volume, network faults and record-and-replay are still planned or being
   evaluated.
+- **An agent we did not build:** [examples/tau2-airline](examples/tau2-airline/)
+  assesses τ²-bench's airline agent from its published policy and tool
+  interfaces alone, and compares AgentTwin's verdicts with τ²'s own on 467
+  trajectories, with every disagreement explained.
 - The worked example worlds live with the
   [reference agent](https://github.com/dataagentsai/reference-agent). This
   repository's own tests use a lending library, so the format is tested on a
