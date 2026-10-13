@@ -1,0 +1,451 @@
+# Application Operation Agent Spec — τ²-bench's telecom agent (the agent's side)
+#
+# Written from three sources only, all at tau2-bench@4ce7c03:
+#   - the main policy (vendor/tau2/main_policy.md, verbatim),
+#   - the technical support manual the agent is given with it
+#     (vendor/tau2/tech_support_manual.md, verbatim), and
+#   - the tool signatures and docstrings of the agent's telecom tool set.
+# Not from the tasks, their expected actions, or τ²'s evaluator. Where the
+# policy is silent, ambiguous, or says something no record can carry, the
+# comment says so and the README's findings table carries it with an id (T-n).
+#
+# A REDUCED spec, and why (T-1). In this domain the customer has tools too:
+# the phone in their hand (airplane mode, SIM, APN, data, roaming, VPN, app
+# permissions, reboot). Most of the manual is the agent telling the customer
+# which of those to use, and τ²'s verdict for most tasks is the phone's state
+# afterwards. This format describes what *the agent* does to the systems it
+# calls; it has no operation another actor performs at the agent's word, and
+# no way to say "guide the user to turn airplane mode off". So this spec
+# covers the carrier's records and the agent's own tools only. The phone is
+# outside it, and outside the world.
+#
+# Validate: node <clean-ai-engineering>/tools/validate-aoas.js tau2-telecom.aoas.yaml
+
+apiVersion: aoas/v0
+agent:
+  id: tau2-telecom
+  version: 0.1.0
+  currency: USD
+
+sources:
+  - tau2-bench@4ce7c0397c1eb65c9bbe59aeacfe1ca44a1cd699 data/tau2/domains/telecom/main_policy.md
+  - tau2-bench@4ce7c0397c1eb65c9bbe59aeacfe1ca44a1cd699 data/tau2/domains/telecom/tech_support_manual.md
+  - tau2-bench@4ce7c0397c1eb65c9bbe59aeacfe1ca44a1cd699 telecom agent tool signatures and docstrings
+
+# ---------------------------------------------------------------------------
+# 1 · Purpose
+# ---------------------------------------------------------------------------
+purpose:
+  serves: >
+    A customer of a mobile carrier, once identified by phone number, customer
+    id, or full name with date of birth, about their own account and lines.
+    The policy's current time is 2025-02-25 12:08 EST.
+  does:
+    - technical support for the customer's phone's service, mobile data and picture messaging, by telling the customer what to do on the phone
+    - paying an overdue bill, by sending the customer a payment request
+    - lifting a line's suspension once every overdue bill is paid
+    - adding data to a line that has used its plan's allowance ("refuelling")
+    - enabling roaming for a customer travelling abroad
+    - handing the customer to a person
+  refuses:
+    - id: R-CONTRACT-ENDED
+      what: lifting a suspension when the line's contract end date is in the past, even with every overdue bill paid
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["I paid everything, turn my line back on (my contract ended last month)"]
+      answered_by: [loop]
+    - id: R-UNPAID
+      what: lifting a suspension while an overdue bill is unpaid
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["Resume my line now, I'll pay the bill next week"]
+      answered_by: [loop]
+    - id: R-REFUEL-CAP
+      what: refuelling more than 2 GB
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["Add 5 GB to my line"]
+      answered_by: [loop]
+    - id: R-ADVICE
+      what: information, knowledge or procedures not given by the customer or the tools, and subjective recommendations
+      concern: functional-suitability
+      facet: functional appropriateness
+      examples: ["Which phone should I buy?"]
+      answered_by: [loop]
+  # As in airline (S-2), the policy names no offer on refusal.
+
+# ---------------------------------------------------------------------------
+# 2 · Entities and state — the carrier's records
+# ---------------------------------------------------------------------------
+entities:
+  customer:
+    key: customer_id
+    fields:
+      customer_id: {type: id, pattern: "C[0-9]{4}"}
+      full_name: {type: text, pii: true}
+      date_of_birth: {type: date, pii: true}
+      phone_number: {type: text, pii: true}
+      account_status: {type: enum, values: [Active, Suspended, Pending Verification, Closed]}
+      overdue_bills: {type: int, derived: "the customer's bills whose status is Overdue"}
+
+  line:
+    key: line_id
+    fields:
+      line_id: {type: id, pattern: "L[0-9]{4}"}
+      # The records list a customer's lines on the customer; a line names no
+      # owner. Derived, so a condition on the line can say whose it is.
+      customer_id: {type: id, ref: customer.customer_id, derived: "the customer whose lines include this one"}
+      phone_number: {type: text, pii: true}
+      status: {type: enum, of: line_status}
+      plan_id: {type: id, ref: plan.plan_id}
+      roaming_enabled: {type: bool}
+      data_used_gb: {type: number}
+      data_refueling_gb: {type: number}
+      contract_end_date: {type: date}
+      contract_ended:
+        type: bool
+        derived: "contract_end_date is before the policy's current date, 2025-02-25"
+      owner_overdue_bills:
+        type: int
+        derived: "the overdue bills of the customer whose line this is (S-1: another entity's rows)"
+    invariants:
+      # READING (T-5): "The maximum amount of data that can be refueled is
+      # 2GB." Per refuel, or per line per cycle? The tool takes any amount and
+      # adds it up; the record keeps only the running total. Stated on the
+      # total, which every single refuel over 2 GB also breaks.
+      - name: at most 2 GB refuelled
+        when: {field: data_refueling_gb, at_least: 0}
+        then: {field: data_refueling_gb, at_most: 2}
+        because: "The maximum amount of data that can be refueled is 2GB"
+
+  bill:
+    key: bill_id
+    fields:
+      bill_id: {type: id, pattern: "B[0-9a-f]+"}
+      customer_id: {type: id, ref: customer.customer_id}
+      # "There are five bill status types" and the policy lists six (T-6).
+      status: {type: enum, of: bill_status}
+      total_due: {type: money}
+
+  plan:
+    key: plan_id
+    fields:
+      plan_id: {type: id, pattern: "P[0-9]{4}"}
+      name: {type: text}
+      data_limit_gb: {type: number}
+      price_per_month: {type: money}
+      data_refueling_price_per_gb: {type: money}
+
+  device:
+    key: device_id
+    fields:
+      device_id: {type: id, pattern: "D[0-9]{4}"}
+
+  transfer:
+    key: id
+    fields:
+      id: {type: id}
+      summary: {type: text}
+
+session:
+  # Who is asking, and about which phone. "You must first identify the
+  # customer" — by phone number, customer id, or name with date of birth.
+  # The manual's refuelling and roaming steps act on "the line associated with
+  # the phone number the user provided", so the phone number is part of who
+  # is asking, not only how they were found.
+  customer_id: {type: id, ref: customer.customer_id}
+  phone_number: {type: text}
+
+state_machines:
+  # The tool's docstring lets a line resume from Pending Activation as well
+  # as Suspended; the policy speaks only of lifting a suspension.
+  line_status:
+    states: [Active, Suspended, Pending Activation, Closed]
+    terminal: [Closed]
+    transitions:
+      - {from: Active, to: Suspended, by: suspend_line}
+      - {from: [Suspended, Pending Activation], to: Active, by: resume_line}
+      - {from: Active, to: Closed, by: external}
+      - {from: Pending Activation, to: Suspended, by: external}
+  bill_status:
+    states: [Draft, Issued, Paid, Overdue, Awaiting Payment, Disputed]
+    terminal: [Paid]
+    transitions:
+      - {from: Draft, to: Issued, by: external}
+      - {from: Issued, to: Overdue, by: external}
+      - {from: Issued, to: Paid, by: external}
+      - {from: Overdue, to: Awaiting Payment, by: send_payment_request}
+      # The customer pays on their phone (make_payment is the customer's
+      # tool, not the agent's); the system then marks the bill paid.
+      - {from: Awaiting Payment, to: Paid, by: external}
+      - {from: [Issued, Overdue], to: Disputed, by: external}
+
+# ---------------------------------------------------------------------------
+# 3 · Operations — the agent's tools
+# ---------------------------------------------------------------------------
+conditions:
+  own_customer: &own_customer {field: customer.customer_id, equals_session: customer_id}
+  own_line: &own_line {field: line.customer_id, equals_session: customer_id}
+  # "Apply the refueled data to the line associated with the phone number the
+  # user provided"; "check that the line associated with the phone number the
+  # user provided is roaming enabled".
+  the_callers_line: &the_callers_line {field: line.phone_number, equals_session: phone_number}
+  own_bill: &own_bill {field: bill.customer_id, equals_session: customer_id}
+
+operations:
+  # The three lookups identify the customer; each answers with the customer's
+  # whole record (name, date of birth, address, payment methods). Read as
+  # scoped to the caller: a lookup that finds someone else shows them a
+  # stranger's record.
+  get_customer_by_phone:
+    entity: customer
+    side_effect: read
+    input: [phone_number]
+    output: customer
+    preconditions: [*own_customer]
+    authority: agent
+
+  get_customer_by_id:
+    entity: customer
+    side_effect: read
+    input: [customer_id]
+    output: customer
+    preconditions: [*own_customer]
+    authority: agent
+
+  get_customer_by_name:
+    entity: customer
+    side_effect: read
+    input: [full_name, dob]
+    output: customer[]
+    preconditions: [*own_customer]
+    authority: agent
+
+  # One operation, five entities: a customer, line, device, bill or plan, by
+  # the id's first letter. An operation acts on one entity in this format
+  # (T-7); it is declared on the customer, whose ownership is the one its
+  # answers can carry (a bill names its customer; a line does not).
+  get_details_by_id:
+    entity: customer
+    side_effect: read
+    input: [id]
+    preconditions: [*own_customer]
+    authority: agent
+
+  get_bills_for_customer:
+    entity: bill
+    side_effect: read
+    input: [customer_id, limit]
+    output: bill[]
+    preconditions: [*own_bill]
+    authority: agent
+
+  get_data_usage:
+    entity: line
+    side_effect: read
+    input: [customer_id, line_id]
+    preconditions: [*own_line]
+    authority: agent
+
+  # "You can help the user make a payment for an overdue bill ... The send
+  # payement request tool will not check if the bill is overdue. You should
+  # always check that the bill is overdue before sending a payment request."
+  # The system does check that no other bill awaits payment.
+  send_payment_request:
+    entity: bill
+    side_effect: reversible
+    input: [customer_id, bill_id]
+    preconditions: [*own_bill, {field: status, equals: [Overdue]}]
+    effect: {status: Awaiting Payment}
+    identity: [customer_id, bill_id]
+    compensation: {kind: none, how: "no operation here withdraws a payment request; the customer may decline it"}
+    authority: agent
+
+  # The policy lists why a line can be suspended (an overdue bill, a contract
+  # ended) and never says when the agent may suspend one (T-8). Only the
+  # tool's own check is stated.
+  suspend_line:
+    entity: line
+    side_effect: reversible
+    input: [customer_id, line_id, reason]
+    preconditions: [*own_line, {field: status, equals: [Active]}]
+    effect: {status: Suspended}
+    identity: [customer_id, line_id]
+    compensation: {kind: undo, how: "resume_line, where the policy allows it"}
+    authority: agent
+
+  # "You are allowed to lift the suspension after the user has paid all their
+  # overdue bills. You are not allowed to lift the suspension if the line's
+  # contract end date is in the past, even if the user has paid all their
+  # overdue bills." The tool checks only the line's status.
+  resume_line:
+    entity: line
+    side_effect: reversible
+    input: [customer_id, line_id]
+    preconditions:
+      - *own_line
+      - {field: status, equals: [Suspended, Pending Activation]}
+      - {field: owner_overdue_bills, at_most: 0}
+      - {field: contract_ended, equals: [false]}
+    effect: {status: Active}
+    identity: [customer_id, line_id]
+    compensation: {kind: undo, how: "suspend_line"}
+    authority: agent
+
+  # "Ask them how much data they want to refuel; confirm the price; apply the
+  # refueled data to the line associated with the phone number the user
+  # provided." The docstring says "Checks: Line status must be Active", and
+  # the code does not check it (T-9); stated here, as the tool says.
+  refuel_data:
+    entity: line
+    side_effect: irreversible        # each call adds data and a charge to the bill
+    input: [customer_id, line_id, gb_amount]
+    preconditions: [*own_line, *the_callers_line, {field: status, equals: [Active]}]
+    effect: "gb_amount is added to the line's refuelled data, and its price per the plan is charged on the customer's next bill"
+    identity: [line_id, gb_amount]
+    compensation: {kind: none, how: "no operation here removes refuelled data or its charge"}
+    authority: agent
+
+  # "If a user is traveling outside their home network, you should check if
+  # the line is roaming enabled. If it is not, you should enable it at no
+  # cost for the user." Where the customer is, is not in these records: it is
+  # the phone's (T-1).
+  enable_roaming:
+    entity: line
+    side_effect: reversible
+    input: [customer_id, line_id]
+    preconditions: [*own_line, *the_callers_line]
+    effect: {roaming_enabled: true}
+    identity: [customer_id, line_id]
+    compensation: {kind: undo, how: "disable_roaming"}
+    authority: agent
+
+  disable_roaming:
+    entity: line
+    side_effect: reversible
+    input: [customer_id, line_id]
+    preconditions: [*own_line]
+    effect: {roaming_enabled: false}
+    identity: [customer_id, line_id]
+    compensation: {kind: undo, how: "enable_roaming"}
+    authority: agent
+
+  transfer_to_human_agents:
+    entity: transfer
+    side_effect: reversible
+    input: [summary]
+    effect: "the customer is handed to a person, with the summary"
+    compensation: {kind: counteract, how: "the person hands the customer back"}
+    authority: agent
+
+  # The policy's "Change Plan" section has no tool: nothing here can apply a
+  # plan (T-4). The customer's phone tools are not the agent's and are not
+  # declared (T-1).
+
+# ---------------------------------------------------------------------------
+# 4 · Policies — the policy's own rules, one per id, in its words where it
+# had them. `via` names the operations whose conditions carry each.
+# ---------------------------------------------------------------------------
+policies:
+  P-IDENTIFY:
+    rule: the customer is identified first — by phone number, customer id, or full name with date of birth
+    via: [get_customer_by_phone, get_customer_by_id, get_customer_by_name]
+    concern: security
+    facet: authenticity
+  P-OWN-ACCOUNT:
+    rule: the agent reads and acts on only the identified customer's account, lines and bills (READING, T-3)
+    via: [get_customer_by_phone, get_customer_by_id, get_customer_by_name, get_details_by_id, get_bills_for_customer, get_data_usage, send_payment_request, suspend_line, resume_line, refuel_data, enable_roaming, disable_roaming]
+    concern: security
+    facet: confidentiality
+  P-NO-INVENTION:
+    rule: the agent gives no information, knowledge or procedure that neither the customer nor the tools provided, and no subjective recommendation or comment
+    via: [get_details_by_id, get_bills_for_customer, get_data_usage]
+    concern: functional-suitability
+    facet: functional correctness
+  P-ONE-CALL:
+    rule: one tool call at a time, and never a tool call and a reply to the customer together
+    via: [get_customer_by_phone, get_details_by_id, refuel_data]
+    addressed_to: model
+    concern: reliability
+  P-DENY:
+    rule: a request against this policy is declined
+    via: [resume_line, refuel_data, send_payment_request]
+    concern: functional-suitability
+    facet: functional correctness
+  P-TRANSFER:
+    rule: the customer is handed to a person if and only if the request cannot be handled within these operations, after trying every way to resolve it; the transfer is made first, and then the customer is told exactly "YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON."
+    via: [transfer_to_human_agents]
+    concern: functional-suitability
+    facet: functional appropriateness
+  P-PAY-OVERDUE:
+    rule: a payment request is sent only for a bill checked to be overdue, after checking the amount; the customer is told to check their payment requests; once they accept, the bill's status is checked to be Paid before they are told it is paid; one bill awaits payment at a time
+    via: [send_payment_request]
+    concern: functional-suitability
+    facet: functional correctness
+  P-RESUME:
+    rule: a suspension is lifted only after the customer has paid every overdue bill, and never when the line's contract end date is in the past; after resuming, the customer reboots the phone
+    via: [resume_line]
+    concern: functional-suitability
+    facet: functional correctness
+  P-REFUEL:
+    rule: at most 2 GB is refuelled; the agent asks how much, confirms the price, and applies it to the line of the phone number the customer gave
+    via: [refuel_data]
+    concern: functional-suitability
+    facet: functional correctness
+  P-ROAMING:
+    rule: for a customer travelling outside their home network, the line of the phone number they gave is checked for roaming, and enabled at no cost if it is not
+    via: [enable_roaming]
+    concern: functional-suitability
+    facet: functional completeness
+  P-TECH-SUPPORT:
+    rule: technical support follows the manual — diagnose with the customer's own phone checks, and guide the customer to each fix — and tries every way to resolve the issue before a transfer (T-1, judged by neither this spec nor AgentTwin)
+    via: [get_customer_by_phone, transfer_to_human_agents]
+    concern: functional-suitability
+    facet: functional completeness
+
+# ---------------------------------------------------------------------------
+# 5 · External contracts
+# ---------------------------------------------------------------------------
+external:
+  carrier:
+    owns: [customer, line, bill, plan, device]
+    operations: [get_customer_by_phone, get_customer_by_id, get_customer_by_name, get_details_by_id, get_bills_for_customer, get_data_usage, send_payment_request, suspend_line, resume_line, refuel_data, enable_roaming, disable_roaming]
+    # The policy names two things the system does not check: whether a bill
+    # is overdue before a payment request, and (by the code, against its own
+    # docstring) whether a line is active before a refuel. Nor does it check
+    # an overdue bill or a contract end before a resume, or which of the
+    # customer's lines a refuel lands on. It checks that a line is the
+    # customer id's, that a suspended line resumes, an active one suspends,
+    # a refuel is positive, and one bill awaits payment at a time.
+    refusal_is_a_result: >
+      A call the system refuses answers with an error naming why, and changes
+      nothing. A call that breaks a rule of this spec the system does not
+      check is carried out.
+    consistency: every answer is the record as it stands after the call
+    failure_modes: [unknown_record]
+  human_desk:
+    owns: [transfer]
+    operations: [transfer_to_human_agents]
+    receives: [transfer]
+
+# ---------------------------------------------------------------------------
+# 6 · Required properties — the policy states none.
+# ---------------------------------------------------------------------------
+required:
+  properties: []
+  undeclared:
+    - latency
+    - cost
+    - availability
+    - data residency
+    - retention
+
+# ---------------------------------------------------------------------------
+# 7 · Conformance — none claimed. This spec describes an agent its author did
+# not build, for assessing it; the catalogs' obligations are its builder's.
+# ---------------------------------------------------------------------------
+conformance:
+  archetypes: [A5]
+  aac:
+    version: "0.16"
+    claims: none claimed; written to assess an agent built by others, from its published policy

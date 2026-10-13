@@ -1,0 +1,30 @@
+# The world the telecom agent is assessed in: τ²-bench's own telecom
+# database — the carrier's records — described in the terms of the AOAS this
+# world cites. A reduced world (README, finding T-1): the customer's phone is
+# τ²'s, changed by the customer's own tools, and is not in it.
+#
+# No rows here. They are τ²'s db.toml at the pinned commit, converted by
+# tau2_telecom/convert.py and added with agenttwin.with_records, which checks
+# them (enums, invariants, joins). Each task's own starting state (a line
+# suspended for an overdue bill, data used up, roaming off) is τ²'s, set by
+# τ²'s environment before the first call, and read into the view then.
+apiVersion: awd/v0
+name: tau2-telecom
+seed: 0
+spec: {aoas: tau2-telecom, version: 0.1.0, path: tau2-telecom.aoas.yaml}
+fidelity:
+  faithful_about:
+    - every effect of the agent's declared writes on the carrier's records, because the stand-in runs τ²'s own tool code against τ²'s own database
+    - line status, roaming, data used and refuelled, bills and their status
+  not_faithful_about:
+    - "the customer's phone: airplane mode, SIM, APN, data, roaming, VPN, apps, signal and speed, which τ²'s user tools change and τ²'s verdict mostly reads"
+    - "where the customer is (abroad or not), which is the phone's"
+    - "time: the clock is the policy's fixed 2025-02-25 12:08 EST"
+  verified_against: "every answer in the offline run equalled τ²'s own environment's, byte for byte (results/offline.md)"
+systems:
+  carrier:
+    projects: carrier
+    resolution: real
+  desk:
+    projects: human_desk
+    resolution: mock
