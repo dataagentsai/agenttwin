@@ -21,6 +21,7 @@ from agenttwin.monitor import (
     Monitor,
     Violation,
     Watch,
+    WithinSpec,
     default_watches,
 )
 from agenttwin.omission import Obligation, nothing_was_omitted, omitted, owed
@@ -70,6 +71,7 @@ __all__ = [
     "Monitor",
     "Violation",
     "Watch",
+    "WithinSpec",
     "default_watches",
     "fire",
     "with_records",

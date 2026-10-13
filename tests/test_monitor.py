@@ -18,12 +18,14 @@ import pytest
 from mcp.client import Client
 
 from agenttwin import (
+    APPROVAL_META,
     INCIDENT_FORMAT,
     SESSION_META,
     CalendarEvent,
     Live,
     Moment,
     Monitor,
+    WithinSpec,
     default_watches,
     fire,
     load,
@@ -346,3 +348,131 @@ def test_a_population_is_checked_like_a_world_file(tmp_path: Path, name, rows, e
         return
     with pytest.raises(InvalidWorld, match=error):
         with_records(world, rows)
+
+
+# ------------------------------------------------------------- within spec
+#
+# The projection refuses what the spec forbids, so nothing it serves can break
+# a precondition. `WithinSpec` is for a far end that does not refuse (a `real`
+# system, or one whose contract leaves the check to the caller), so each case
+# drives a permissive handler through `Monitor.wrap`: it writes whatever it is
+# asked to, and the watch says whether the spec allowed it.
+#
+# A case: name, operation, the loan, what the far end writes, session member,
+# call meta, and the incidents as (rule, root). A renewal clears days overdue,
+# because the library declares a renewed loan cannot be overdue.
+RENEWED = {"status": "renewed", "days_overdue": 0}
+WRITES: list[tuple[str, str, str, dict[str, Any], str, dict[str, Any], list[tuple[str, str]]]] = [
+    ("a write the spec allows", "renew", "L-1", RENEWED, "M-1", {}, []),
+    (
+        "a write on a row its precondition refused",
+        "renew",
+        "L-4",
+        RENEWED,
+        "M-1",
+        {},
+        [
+            ("within-spec", "renew:L-4:precondition:days_overdue"),
+            ("within-spec", "renew:L-4:authority:days_overdue"),
+        ],
+    ),
+    (
+        "a write on somebody else's row",
+        "renew",
+        "L-3",
+        RENEWED,
+        "M-1",
+        {},
+        [("within-spec", "renew:L-3:owner")],
+    ),
+    (
+        "a write that leaves a row that cannot exist",
+        "note_due_date",
+        "L-2",
+        {"status": "returned"},
+        "M-1",
+        {},
+        [("within-spec", "note_due_date:L-2:invariant:only an open loan is overdue")],
+    ),
+    ("a refused call that changed nothing", "renew", "L-4", {}, "M-1", {}, []),
+    (
+        "beyond the agent's own authority",
+        "renew",
+        "L-2",
+        RENEWED,
+        "M-1",
+        {},
+        [("within-spec", "renew:L-2:authority:days_overdue")],
+    ),
+    (
+        "beyond it, with an approval named",
+        "renew",
+        "L-2",
+        RENEWED,
+        "M-1",
+        {APPROVAL_META: "APR-1"},
+        [],
+    ),
+]
+
+
+def permissive(tmp_path: Path) -> Live:
+    """The library, with an authority limit on renewing and a loan past the
+    renewal window."""
+    spec, world = copy.deepcopy(SPEC), copy.deepcopy(WORLD)
+    spec["operations"]["renew"]["authority"] = {
+        "agent_when": [{"field": "days_overdue", "at_most": 3}],
+        "otherwise": "human_approval",
+    }
+    world["records"]["member"].append({"id": "M-2", "email": "n@example.org"})
+    world["records"]["loan"] += [
+        {"id": "L-2", "member_id": "M-1", "status": "open", "days_overdue": 5},
+        {"id": "L-3", "member_id": "M-2", "status": "open", "days_overdue": 0},
+        {"id": "L-4", "member_id": "M-1", "status": "open", "days_overdue": 9},
+    ]
+    return Live.start(load(write(tmp_path, spec, world)))
+
+
+class _Ctx:
+    """Just enough of an MCP context to carry `_meta`."""
+
+    def __init__(self, meta: dict[str, Any]) -> None:
+        self.request_context = type("R", (), {"meta": meta})()
+
+
+@pytest.mark.parametrize(
+    ("name", "operation", "loan", "writes", "member", "meta", "expected"),
+    WRITES,
+    ids=[w[0] for w in WRITES],
+)
+async def test_a_write_the_far_end_let_through_is_judged_against_the_spec(
+    tmp_path: Path, name, operation, loan, writes, member, meta, expected
+) -> None:
+    live = permissive(tmp_path)
+    monitor = Monitor(live, watches=[WithinSpec()], session_of=lambda m: {"member_id": m})
+
+    async def far_end(**arguments: Any) -> dict[str, Any]:
+        row = live.get("loan", arguments["id"])
+        row.update(writes)
+        return {"allowed": True, **row}
+
+    far_end.__signature__ = None  # type: ignore[attr-defined]
+    watched = monitor.wrap(operation, far_end)
+    await watched(id=loan, ctx=_Ctx({SESSION_META: {"member_id": member}, **meta}))
+    assert sorted((i.rule, i.root) for i in monitor.incidents) == sorted(expected)
+
+
+def test_a_read_is_never_judged_as_a_write(tmp_path: Path) -> None:
+    live = permissive(tmp_path)
+    _, action = live.world.action("get_loan")  # type: ignore[misc]
+    seen = ActionSeen(
+        live=live,
+        moment=None,
+        operation="get_loan",
+        action=action,
+        arguments={"id": "L-3"},
+        answer=None,
+        session={"member_id": "M-1"},
+        before={},
+    )
+    assert list(WithinSpec().after_action(seen)) == []

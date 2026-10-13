@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agenttwin.omission import owed
-from agenttwin.projection import Live, _session
+from agenttwin.projection import APPROVAL_META, Live, _meta, _session
 from agenttwin.truth import named_contradictions
 from agenttwin.world import Action
 
@@ -82,6 +82,12 @@ class ActionSeen:
     arguments: dict[str, Any]
     answer: dict[str, Any] | None
     session: Mapping[str, object] | None
+    before: dict[str, dict[str, dict]] | None = None
+    """The record as the call found it. A precondition is a statement about the
+    row *before* the write; judged on the row after, a cancellation always looks
+    like it was made on a cancelled reservation."""
+    meta: Mapping[str, object] | None = None
+    """The call's `_meta`, for what the caller presented with it (an approval)."""
 
 
 @dataclass(frozen=True)
@@ -289,6 +295,75 @@ class AtMostOnce(Watch):
         ]
 
 
+class WithinSpec(Watch):
+    """A write that landed is one the spec allowed.
+
+    Three questions, each about a row the write changed on the operation's own
+    entity: did the spec's preconditions hold on the row **as the call found
+    it**; was the row the caller's (`equals_session`); and is every row the
+    write left behind one the entity's invariants say can exist. A fourth asks
+    `agent_when` on the row as found, unless the call named an approval
+    (`aoas/approval`) — whether that approval was any good is the binding's
+    `authority_check`, not this.
+
+    Against a projected world this watch is silent, because the projection
+    refuses a write whose preconditions fail and nothing lands. It speaks where
+    the far end does not enforce the spec: a `real` or `shadow` system, or one
+    whose contract leaves the check to the caller ("the API does not check
+    these for the agent", τ²-bench's airline policy). A call that changed
+    nothing is not judged here: the world was not moved.
+
+    Opt-in, not in `default_watches`: it reads the whole entity before and after
+    each write to find what changed.
+    """
+
+    name = "within-spec"
+
+    def after_action(self, seen: ActionSeen) -> Iterable[Violation]:
+        if seen.action.side_effect == "read" or seen.before is None:
+            return ()
+        live, action = seen.live, seen.action
+        entity = live.world.entities[action.entity]
+        was = seen.before.get(action.entity, {})
+        now = live.rows.get(action.entity, {})
+        changed = [k for k, row in now.items() if was.get(k) != row]
+        if not changed:
+            return ()
+        out: list[Violation] = []
+
+        def add(key: str, what: str, detail: str) -> None:
+            out.append(
+                Violation(
+                    rule=self.name,
+                    root=f"{seen.operation}:{key}:{what}",
+                    detail=f"{seen.operation} on {action.entity} {key}: {detail}",
+                    subject=(action.entity, key),
+                )
+            )
+
+        named = seen.arguments.get(entity.key)
+        found = was.get(str(named)) if named is not None else None
+        if found is not None:
+            for c in action.allowed_when:
+                if not c.holds(found):
+                    add(str(named), f"precondition:{c.field}",
+                        f"landed though {c.field} was {found.get(c.field)!r}")
+            approved = bool((seen.meta or {}).get(APPROVAL_META))
+            for c in action.agent_when if not approved else ():
+                if not c.holds(found):
+                    add(str(named), f"authority:{c.field}",
+                        f"the agent acted alone though {c.field} was {found.get(c.field)!r}")
+        for key in changed:
+            row = now[key]
+            if action.session_when and not action.visible_to(row, seen.session):
+                add(key, "owner", f"the row is not {_viewer(seen.session)}'s")
+            for invariant in entity.violations(row):
+                add(key, f"invariant:{invariant.name}",
+                    f"left a row that cannot exist — {invariant.name}"
+                    + (f": {invariant.because}" if invariant.because else ""))
+        return out
+
+
 def default_watches(*, owed_within_s: int) -> list[Watch]:
     """The four invariants T-079 names."""
     return [OwedOverdue(owed_within_s), RepliesTrue(), OwnRowsOnly(), AtMostOnce()]
@@ -486,6 +561,8 @@ class Monitor:
                 arguments=sent,
                 answer=answer if isinstance(answer, dict) else None,
                 session=session,
+                before=record,
+                meta=_meta(arguments.get("ctx")),
             )
             for watch in self.watches:
                 for violation in watch.after_action(seen):
@@ -586,5 +663,6 @@ __all__ = [
     "ReplySeen",
     "Violation",
     "Watch",
+    "WithinSpec",
     "default_watches",
 ]
