@@ -228,21 +228,38 @@ async def test_an_incident_carries_its_evidence(tmp_path: Path) -> None:
     assert record["first_at"] == record["last_at"] == 60 and record["count"] == 1
 
 
-def test_a_leaking_answer_is_seen(tmp_path: Path) -> None:
-    """The projection never leaks, so the watch is shown one that does."""
+# name, operation, the answer (built from the live world), the roots it must raise
+LEAKS = [
+    ("a listing that leaks one row", "list_loans",
+     lambda live: {"found": True, "items": [live.get("loan", "L-1"), live.get("loan", "L-3")]},
+     ["loan:L-3:member_id=M-1"]),
+    ("a listing of one's own rows", "list_loans",
+     lambda live: {"found": True, "items": [live.get("loan", "L-1")]}, []),
+    # A far end that is not the projection answers a single read with the row
+    # itself, and a row may have a field named `items` (τ²-bench's retail
+    # orders: their lines). That field is not a listing; the row is judged.
+    ("one row, another's, with a field named items", "get_loan",
+     lambda live: {**live.get("loan", "L-3"), "items": [{"line": 1}]}, ["loan:L-3:member_id=M-1"]),
+    ("one row, one's own, with a field named items", "get_loan",
+     lambda live: {**live.get("loan", "L-1"), "items": [{"line": 1}]}, []),
+]
+
+
+@pytest.mark.parametrize(("name", "operation", "answer", "roots"), LEAKS, ids=[c[0] for c in LEAKS])
+def test_a_leaking_answer_is_seen(tmp_path: Path, name, operation, answer, roots) -> None:
+    """The projection never leaks, so the watch is shown answers that do."""
     live = library(tmp_path)
-    _, action = live.world.action("list_loans")  # type: ignore[misc]
-    leaked = {"found": True, "items": [live.get("loan", "L-1"), live.get("loan", "L-3")]}
+    _, action = live.world.action(operation)  # type: ignore[misc]
     seen = ActionSeen(
         live=live,
         moment=None,
-        operation="list_loans",
+        operation=operation,
         action=action,
         arguments={},
-        answer=leaked,
+        answer=answer(live),
         session={"member_id": "M-1"},
     )
-    assert [v.root for v in OwnRowsOnly().after_action(seen)] == ["loan:L-3:member_id=M-1"]
+    assert [v.root for v in OwnRowsOnly().after_action(seen)] == roots
 
 
 def test_the_monitor_must_be_told_a_turn_began(tmp_path: Path) -> None:

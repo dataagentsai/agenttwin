@@ -228,7 +228,10 @@ class OwnRowsOnly(Watch):
         pairs = _owners(seen.live).get(seen.action.entity, ())
         if not pairs or not seen.answer:
             return ()
-        rows = seen.answer.get("items")
+        # A many-read answers `{"found": ..., "items": [rows]}`; any other read
+        # answers the row itself, and a row may have a field called `items` (an
+        # order's lines), which is not a listing of rows to judge.
+        rows = seen.answer.get("items") if seen.action.many else None
         shown = rows if isinstance(rows, list) else [seen.answer]
         key_field = seen.live.world.entities[seen.action.entity].key
         viewer = _viewer(seen.session)
