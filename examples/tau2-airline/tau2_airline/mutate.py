@@ -18,11 +18,12 @@ rows (or a stranger's) that fit, never one the expected actions touch.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from tau2_airline.convert import FREE_BAGS
-from tau2_airline.judge import Bench, Step
+from tau2_airline.judge import Bench
+from tau2_common.mutate import Variant, first, gold
+from tau2_common.mutate import with_close as _with_close
 
 DB_WRITES = {
     "book_reservation",
@@ -34,26 +35,7 @@ DB_WRITES = {
 }
 
 
-@dataclass(frozen=True)
-class Variant:
-    name: str
-    what: str
-    steps: list[Step]
-    note: str = ""
-
-
-def gold(task: Any) -> list[Step]:
-    """The task's expected actions, and — where τ² requires something said —
-    one closing reply that says it (synthesised: the expected actions carry no
-    words)."""
-    criteria = task.evaluation_criteria
-    steps: list[Step] = [("call", a.name, dict(a.arguments)) for a in criteria.actions or []]
-    if criteria.communicate_info:
-        steps.append(("say", "", " ".join(criteria.communicate_info)))
-    return steps
-
-
-def _touched(steps: list[Step]) -> set[str]:
+def _touched(steps: list) -> set[str]:
     return {str(s[2].get("reservation_id")) for s in steps if s[0] == "call" and s[2].get("reservation_id")}
 
 
@@ -64,13 +46,6 @@ def _payment(bench: Bench, user_id: str, at_least: float = 0) -> str | None:
             return m["id"]
     cards = [m for m in methods if m["source"] == "gift_card" and (m["amount"] or 0) >= at_least]
     return max(cards, key=lambda m: m["amount"])["id"] if cards else None
-
-
-def _with_close(steps: list[Step], extra: list[Step]) -> list[Step]:
-    """`extra` before the closing reply, so what is said still comes last."""
-    if steps and steps[-1][0] == "say":
-        return [*steps[:-1], *extra, steps[-1]]
-    return [*steps, *extra]
 
 
 def _alternative(bench: Bench, leg: Any, cabin: str, seats: int, same_destination: bool) -> str | None:
@@ -87,7 +62,8 @@ def _alternative(bench: Bench, leg: Any, cabin: str, seats: int, same_destinatio
     return None
 
 
-def variants(bench: Bench, task: Any, user_id: str) -> list[Variant]:
+def variants(bench: Bench, task: Any, session: dict | str) -> list[Variant]:
+    user_id = session["user_id"] if isinstance(session, dict) else session
     base = gold(task)
     touched = _touched(base)
     reservations = bench.rows["reservation"]
@@ -103,12 +79,6 @@ def variants(bench: Bench, task: Any, user_id: str) -> list[Variant]:
         out.append(Variant("drop-last-write", "goal", base[:last] + base[last + 1 :], base[last][1]))
         out.append(Variant("repeat-last-write", "policy" if base[last][1] in ("cancel_reservation", "book_reservation", "send_certificate") else "none",
                            _with_close(base, [base[last]]), base[last][1]))
-
-    def first(rows: list[dict], **want: Any) -> dict | None:
-        for r in rows:
-            if all((v(r[k]) if callable(v) else r[k] == v) for k, v in want.items()):
-                return r
-        return None
 
     def cancel(name: str, what: str, row: dict | None, note: str) -> None:
         if row is not None:

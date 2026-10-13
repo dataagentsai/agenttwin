@@ -1,4 +1,4 @@
-# Offline comparison: τ² vs AgentTwin
+# Offline comparison: τ² vs AgentTwin — airline
 
 ## By mutation
 

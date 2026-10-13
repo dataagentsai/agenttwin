@@ -114,10 +114,15 @@ end with an agent we did not build. It is not a measurement.
 |---|---|---|
 | [tau2-airline.aoas.yaml](tau2-airline.aoas.yaml) | The behaviour contract, written from [the policy](vendor/tau2/policy.md) and the tool signatures and docstrings only. It passes `validate-aoas.js` | written |
 | [world.yaml](world.yaml) + [convert.py](tau2_airline/convert.py) | τ²'s database as the AOAS's rows, derived fields included. 12,006 rows, loaded through `agenttwin.with_records`, which checks enums, invariants and joins | written (deterministic converter; rows are not committed) |
-| [standin.py](tau2_airline/standin.py) | τ²'s 14 tools over MCP, with τ²'s signatures and τ²'s words. Behaviour is τ²'s own tool code (`resolution: real`). After every write, `Live` is re-derived from the database, and the write goes in `Live.effects` | adopted (τ²'s code) behind an AgentTwin surface |
-| [judge.py](tau2_airline/judge.py) | AgentTwin: `Monitor` with the default watches plus `WithinSpec`, as the customer the task names. τ²: `EnvironmentEvaluator` × `CommunicateEvaluator` over the task's `reward_basis`, unchanged | both adopted, unchanged |
-| [mutate.py](tau2_airline/mutate.py), [offline.py](tau2_airline/offline.py) | Mutations, both verdicts, the cause table | written |
+| [standin.py](tau2_airline/standin.py) (over `tau2_common.standin`) | τ²'s 14 tools over MCP, with τ²'s signatures and τ²'s words. Behaviour is τ²'s own tool code (`resolution: real`). After every write, `Live` is re-derived from the database, and the write goes in `Live.effects` | adopted (τ²'s code) behind an AgentTwin surface |
+| [judge.py](tau2_airline/judge.py) (over `tau2_common.judge`) | AgentTwin: `Monitor` with the default watches plus `WithinSpec`, as the customer the task names. τ²: `EnvironmentEvaluator` × `CommunicateEvaluator` over the task's `reward_basis`, unchanged | both adopted, unchanged |
+| [mutate.py](tau2_airline/mutate.py), [offline.py](tau2_airline/offline.py) | Mutations, and this domain's causes; `tau2_common.offline` judges and tabulates | written |
 | [live.py](tau2_airline/live.py) | τ²'s orchestrator, agent and user simulator; tool calls swapped to the stand-in; per-model pacing; no retries | τ²'s, one swap |
+
+Since 13 Oct 2026 the stand-in, the two judges and the offline driver are
+shared with [tau2-retail](../tau2-retail/) and [tau2-telecom](../tau2-telecom/)
+in [tau2-common](../tau2-common/). After the move, the full offline run gave
+the same verdicts and incidents on all 467 trajectories as before it.
 
 What AgentTwin knows when it judges: the AOAS, the world, and which user id
 the customer gives (the session). It never sees the expected actions or
@@ -144,9 +149,11 @@ agent", which is exactly the case this watch covers.
 ## Running it
 
 Needs [uv](https://docs.astral.sh/uv/) and git. `run.sh` fetches τ² at the
-pinned commit (sparse checkout, about 19 MB) into
-`~/.cache/agenttwin/tau2-bench`, outside this repository, and runs Python
-with AgentTwin plus τ² installed from that checkout.
+pinned commit ([../tau2-common/fetch_tau2.sh](../tau2-common/fetch_tau2.sh):
+a sparse checkout of the source and the three domains' data, about 40 MB)
+into `~/.cache/agenttwin/tau2-bench`, outside this repository, and runs
+Python with AgentTwin, the shared `tau2_common` and τ² installed from that
+checkout.
 
 ```bash
 ./run.sh -m pytest tests                 # 33 tests, about 20 seconds
