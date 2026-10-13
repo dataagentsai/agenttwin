@@ -476,3 +476,21 @@ def test_a_read_is_never_judged_as_a_write(tmp_path: Path) -> None:
         before={},
     )
     assert list(WithinSpec().after_action(seen)) == []
+
+
+async def test_a_write_that_changed_only_another_entity_is_still_judged(tmp_path: Path) -> None:
+    """An operation that creates a row elsewhere leaves its own row as it was;
+    its preconditions are still about the row it named."""
+    live = permissive(tmp_path)
+    monitor = Monitor(live, watches=[WithinSpec()], session_of=lambda m: {"member_id": m})
+
+    async def far_end(**arguments: Any) -> dict[str, Any]:
+        live.rows["member"]["M-1"]["email"] = "changed@example.org"
+        return {"allowed": True}
+
+    far_end.__signature__ = None  # type: ignore[attr-defined]
+    await monitor.wrap("renew", far_end)(id="L-4", ctx=_Ctx({SESSION_META: {"member_id": "M-1"}}))
+    assert {i.root for i in monitor.incidents} == {
+        "renew:L-4:precondition:days_overdue",
+        "renew:L-4:authority:days_overdue",
+    }

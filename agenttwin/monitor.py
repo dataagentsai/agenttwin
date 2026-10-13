@@ -311,7 +311,9 @@ class WithinSpec(Watch):
     the far end does not enforce the spec: a `real` or `shadow` system, or one
     whose contract leaves the check to the caller ("the API does not check
     these for the agent", τ²-bench's airline policy). A call that changed
-    nothing is not judged here: the world was not moved.
+    nothing anywhere is not judged here: the world was not moved. One that
+    changed only another entity's rows (it created one) is judged on the row
+    it named.
 
     Opt-in, not in `default_watches`: it reads the whole entity before and after
     each write to find what changed.
@@ -323,12 +325,14 @@ class WithinSpec(Watch):
         if seen.action.side_effect == "read" or seen.before is None:
             return ()
         live, action = seen.live, seen.action
+        if seen.before == live.rows:
+            return ()  # nothing landed anywhere
         entity = live.world.entities[action.entity]
         was = seen.before.get(action.entity, {})
         now = live.rows.get(action.entity, {})
+        # A write may change only another entity's rows — one that creates a
+        # row elsewhere — and its preconditions are still about the row it named.
         changed = [k for k, row in now.items() if was.get(k) != row]
-        if not changed:
-            return ()
         out: list[Violation] = []
 
         def add(key: str, what: str, detail: str) -> None:
