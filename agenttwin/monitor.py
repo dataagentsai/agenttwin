@@ -88,6 +88,11 @@ class ActionSeen:
     like it was made on a cancelled reservation."""
     meta: Mapping[str, object] | None = None
     """The call's `_meta`, for what the caller presented with it (an approval)."""
+    landed: bool | None = None
+    """Whether the call moved the world: a row changed, or the far end entered
+    an effect in `Live.effects`. A write can land on something no row shows
+    (a second refund on a cancelled reservation), and the effect log is the
+    far end's own account of it. `None` when nobody said."""
 
 
 @dataclass(frozen=True)
@@ -312,8 +317,8 @@ class WithinSpec(Watch):
     whose contract leaves the check to the caller ("the API does not check
     these for the agent", τ²-bench's airline policy). A call that changed
     nothing anywhere is not judged here: the world was not moved. One that
-    changed only another entity's rows (it created one) is judged on the row
-    it named.
+    changed only another entity's rows (it created one), or that changed no
+    row but entered an effect, is judged on the row it named.
 
     Opt-in, not in `default_watches`: it reads the whole entity before and after
     each write to find what changed.
@@ -325,7 +330,7 @@ class WithinSpec(Watch):
         if seen.action.side_effect == "read" or seen.before is None:
             return ()
         live, action = seen.live, seen.action
-        if seen.before == live.rows:
+        if not (seen.landed if seen.landed is not None else seen.before != live.rows):
             return ()  # nothing landed anywhere
         entity = live.world.entities[action.entity]
         was = seen.before.get(action.entity, {})
@@ -541,6 +546,7 @@ class Monitor:
 
         async def watched(**arguments: Any) -> Any:
             record, truth = self.live.snapshot(), self.live.truth()
+            effects = len(self.live.effects)
             session = _session(arguments.get("ctx"))
             sent = {k: v for k, v in arguments.items() if k != "ctx"}
             entry: dict[str, Any] = {
@@ -567,6 +573,7 @@ class Monitor:
                 session=session,
                 before=record,
                 meta=_meta(arguments.get("ctx")),
+                landed=len(self.live.effects) > effects or self.live.rows != record,
             )
             for watch in self.watches:
                 for violation in watch.after_action(seen):

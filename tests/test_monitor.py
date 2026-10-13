@@ -494,3 +494,18 @@ async def test_a_write_that_changed_only_another_entity_is_still_judged(tmp_path
         "renew:L-4:precondition:days_overdue",
         "renew:L-4:authority:days_overdue",
     }
+
+
+async def test_a_write_no_row_shows_is_judged_by_its_effect(tmp_path: Path) -> None:
+    """A far end can land something the rows do not hold (a second refund on
+    a cancelled reservation); its entry in the effect log is the landing."""
+    live = permissive(tmp_path)
+    monitor = Monitor(live, watches=[WithinSpec()], session_of=lambda m: {"member_id": m})
+
+    async def far_end(**arguments: Any) -> dict[str, Any]:
+        live.effects.append(("renew", arguments["id"]))
+        return {"allowed": True}
+
+    far_end.__signature__ = None  # type: ignore[attr-defined]
+    await monitor.wrap("renew", far_end)(id="L-4", ctx=_Ctx({SESSION_META: {"member_id": "M-1"}}))
+    assert "renew:L-4:precondition:days_overdue" in {i.root for i in monitor.incidents}
