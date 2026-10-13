@@ -1,0 +1,35 @@
+# The world the retail agent is assessed in: τ²-bench's own retail database,
+# described in the terms of the AOAS this world cites.
+#
+# No rows here. They are τ²'s db.json at the pinned commit, converted by
+# tau2_retail/convert.py and added with agenttwin.with_records, which checks
+# them as it checks a world file's rows (enums, invariants, joins) — 500
+# users, their payment methods, 1,000 orders, 50 products and their 591
+# items. Committing generated rows would be a copy of τ²'s data that could
+# drift from it; the converter is deterministic instead.
+apiVersion: awd/v0
+name: tau2-retail
+seed: 0
+spec: {aoas: tau2-retail, version: 0.1.0, path: tau2-retail.aoas.yaml}
+fidelity:
+  faithful_about:
+    - every order and profile effect of the declared writes, because the stand-in runs τ²'s own tool code against τ²'s own database
+    - order status, items, payments and refunds, gift card balances, and each item's availability and price
+  not_faithful_about:
+    - "time: nothing ages during a conversation; no order moves from pending to processed or delivered"
+    - the emails the system says it sends after a return or exchange, which no record holds
+    - "which item was exchanged for which: the record keeps both lists sorted"
+  # The answers, not the behaviour: the behaviour is τ²'s own code. What this
+  # checks is everything AgentTwin put in the path — the MCP surface, the
+  # schemas built from τ²'s signatures, argument handling, the error words.
+  verified_against: "every answer in the offline run equalled τ²'s own environment's, byte for byte (results/offline.md)"
+systems:
+  # `real`: the stand-in's behaviour is τ²'s own tool code, which is the
+  # system of record of this benchmark. AgentTwin holds the view of it the
+  # spec describes, and judges by that view.
+  store:
+    projects: store
+    resolution: real
+  desk:
+    projects: human_desk
+    resolution: mock

@@ -1,0 +1,454 @@
+# Application Operation Agent Spec — τ²-bench's retail agent
+#
+# Written from two sources only, both at tau2-bench@4ce7c03:
+#   - the retail policy (vendor/tau2/policy.md, verbatim), and
+#   - the tool signatures and docstrings of the retail tool set.
+# Not from the tasks, their expected actions, or τ²'s evaluator. Where the
+# policy is silent, ambiguous, or says something no record can carry, the
+# comment says so and the README's findings table carries it with an id
+# (R-n; the airline example's S-n are cited where the same finding recurs).
+#
+# An agent we did not build: nothing here is a design decision of ours. Where
+# this file had to choose a reading, the comment is marked READING.
+#
+# Validate: node <clean-ai-engineering>/tools/validate-aoas.js tau2-retail.aoas.yaml
+
+apiVersion: aoas/v0
+agent:
+  id: tau2-retail
+  version: 0.1.0
+  currency: USD
+
+sources:
+  - tau2-bench@4ce7c0397c1eb65c9bbe59aeacfe1ca44a1cd699 data/tau2/domains/retail/policy.md
+  - tau2-bench@4ce7c0397c1eb65c9bbe59aeacfe1ca44a1cd699 retail tool signatures and docstrings
+
+# ---------------------------------------------------------------------------
+# 1 · Purpose
+# ---------------------------------------------------------------------------
+purpose:
+  serves: >
+    One customer of an online retail store per conversation, once their user
+    id has been located from their email, or from their name and zip code,
+    about their own profile, orders and the store's products.
+  does:
+    - cancelling a pending order
+    - changing a pending order's shipping address, payment method or item options
+    - returning items of a delivered order
+    - exchanging items of a delivered order for other options of the same product
+    - changing the customer's default address
+    - information about the customer's own profile and orders, and about products
+    - handing the customer to a person
+  refuses:
+    - id: R-OTHER-USER
+      what: anything about another user's profile or orders — one user per conversation
+      concern: security
+      facet: confidentiality
+      examples: ["Can you check my husband's order too? His email is ...", "Cancel the order for my neighbour"]
+      answered_by: [loop]
+    - id: R-CANCEL-REASON
+      what: cancelling for any reason but 'no longer needed' or 'ordered by mistake'
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["Cancel it, I found it cheaper elsewhere"]
+      answered_by: [loop]
+    - id: R-NOT-PENDING
+      what: cancelling or modifying an order that is not pending, including one whose items were already modified
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["Cancel my order that shipped yesterday", "Change the colour again on the order you just modified"]
+      answered_by: [loop]
+    - id: R-NOT-DELIVERED
+      what: returning or exchanging items of an order that is not delivered
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["Return the lamp on my order that is still processing"]
+      answered_by: [loop]
+    - id: R-PRODUCT-TYPE
+      what: changing an item for a different product type (a shirt for a shoe)
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["Exchange the keyboard for a mouse"]
+      answered_by: [loop]
+    - id: R-OTHER-CHANGES
+      what: changing anything of a pending order but its shipping address, payment method or item options
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["Add another item to my pending order"]
+      answered_by: [loop]
+    - id: R-ADVICE
+      what: information, knowledge or procedures not given by the customer or the tools, and subjective recommendations
+      concern: functional-suitability
+      facet: functional appropriateness
+      examples: ["Which of these office chairs is best for my back?"]
+      answered_by: [loop]
+  # As in airline (S-2), the policy names no offer on refusal.
+
+# ---------------------------------------------------------------------------
+# 2 · Entities and state
+# ---------------------------------------------------------------------------
+entities:
+  user:
+    key: user_id
+    fields:
+      user_id: {type: id, pattern: "[a-z]+_[a-z]+_[0-9]{4}"}
+      email: {type: email, pii: true}
+      zip: {type: text, pii: true}          # of the default address, which identifies the user
+
+  payment_method:
+    key: id
+    fields:
+      id: {type: id, pattern: "(credit_card|paypal|gift_card)_[0-9]{7}"}
+      user_id: {type: id, ref: user.user_id}
+      source: {type: enum, values: [credit_card, paypal, gift_card]}
+      balance: {type: money}                 # a gift card's; the others have none
+
+  order:
+    key: order_id
+    fields:
+      order_id: {type: id, pattern: "#W[0-9]{7}"}
+      user_id: {type: id, ref: user.user_id}
+      status: {type: enum, of: order_status}
+      item_count: {type: int, derived: "the items ordered, a repeated item counted each time"}
+      cancel_reason: {type: enum, values: [no longer needed, ordered by mistake]}
+      # "each item can be exchanged to an available new item of the same
+      # product but of different product option". The record keeps the items
+      # given back and the items asked for, each list sorted, so which item
+      # was paired with which is gone; what it can show is an exchange that
+      # gives back exactly what it asks for (R-6).
+      exchange_changes_items:
+        type: bool
+        derived: "false when the order's exchange asks for exactly the items it gives back; true otherwise, and when there is no exchange"
+    invariants:
+      - name: an exchange changes an item
+        when: {field: status, equals: [exchange requested]}
+        then: {field: exchange_changes_items, equals: [true]}
+        because: "each item can be exchanged to an available new item of the same product but of different product option"
+
+  product:
+    key: product_id
+    fields:
+      product_id: {type: id, pattern: "[0-9]{10}"}
+      name: {type: text}
+
+  # A variant of a product. The policy's word is "item"; the tools say both.
+  item:
+    key: item_id
+    fields:
+      item_id: {type: id, pattern: "[0-9]{10}"}
+      product_id: {type: id, ref: product.product_id}
+      available: {type: bool}
+      price: {type: money}
+
+  transfer:
+    key: id
+    fields:
+      id: {type: id}
+      summary: {type: text}
+
+session:
+  # Who is asking. The policy: "authenticate the user identity by locating
+  # their user id via email, or via name + zip code. This has to be done even
+  # when the user already provides the user id." So the session's user id is
+  # not what the customer says but what a lookup returned. The format's
+  # session is given, and nothing here can say "established by
+  # find_user_id_by_email or find_user_id_by_name_zip, before anything else"
+  # (R-1).
+  user_id: {type: id, ref: user.user_id}
+
+state_machines:
+  # The policy names four statuses (pending, processed, delivered, cancelled)
+  # and three more in its prose: 'pending (items modifed)' — its spelling —
+  # 'return requested' and 'exchange requested'. The system records the first
+  # as 'pending (item modified)'. Three spellings of one state (R-5); this
+  # spec names it once, and the converter maps the system's word to it.
+  order_status:
+    states: [pending, processed, delivered, cancelled, pending (items modified), return requested, exchange requested]
+    terminal: [cancelled, return requested, exchange requested]
+    transitions:
+      - {from: pending, to: processed, by: external}
+      - {from: processed, to: delivered, by: external}
+      - {from: pending, to: cancelled, by: cancel_pending_order}
+      - {from: pending, to: pending (items modified), by: modify_pending_order_items}
+      - {from: delivered, to: return requested, by: return_delivered_order_items}
+      - {from: delivered, to: exchange requested, by: exchange_delivered_order_items}
+
+# ---------------------------------------------------------------------------
+# 3 · Operations
+# ---------------------------------------------------------------------------
+conditions:
+  # "You can only help one user per conversation ... and must deny any
+  # requests for tasks related to any other user." Stated, unlike airline's
+  # S-5: ownership is the policy's own rule here.
+  own_order: &own_order {field: order.user_id, equals_session: user_id}
+  own_profile: &own_profile {field: user.user_id, equals_session: user_id}
+  pending: &pending {field: order.status, equals: [pending]}
+
+operations:
+  # The two lookups are how the session is established (R-1). They search
+  # every user, and answer with a user id, not a row, so they declare no
+  # output and no ownership.
+  find_user_id_by_email:
+    entity: user
+    side_effect: read
+    input: [email]
+    authority: agent
+
+  find_user_id_by_name_zip:
+    entity: user
+    side_effect: read
+    input: [first_name, last_name, zip]
+    authority: agent
+
+  get_user_details:
+    entity: user
+    side_effect: read
+    input: [user_id]
+    output: user
+    preconditions: [*own_profile]
+    authority: agent
+
+  get_order_details:
+    entity: order
+    side_effect: read
+    input: [order_id]
+    output: order
+    preconditions: [*own_order]
+    authority: agent
+
+  # The catalogue is public: nobody's rows.
+  get_product_details:
+    entity: product
+    side_effect: read
+    input: [product_id]
+    output: product
+    authority: agent
+
+  get_item_details:
+    entity: item
+    side_effect: read
+    input: [item_id]
+    output: item
+    authority: agent
+
+  # Every product's name and id. `output: product[]` would be refused as an
+  # unscoped collection (airline S-8), so it declares none.
+  list_all_product_types:
+    entity: product
+    side_effect: read
+    input: []
+    authority: agent
+
+  # `calculate` is a pure function and is not declared (airline S-9).
+
+  cancel_pending_order:
+    entity: order
+    side_effect: irreversible
+    input: [order_id, reason]
+    preconditions: [*own_order, *pending]
+    effect: {status: cancelled, cancel_reason: $reason}
+    identity: order_id
+    compensation: {kind: none, how: "a cancelled order is not restored; ordering again is the customer's own recovery"}
+    authority: agent
+    on_refusal: none offered
+
+  modify_pending_order_address:
+    entity: order
+    side_effect: reversible
+    input: [order_id, address1, address2, city, state, country, zip]
+    preconditions: [*own_order, *pending]
+    effect: "the order ships to the address given"
+    identity: [order_id, address1, address2, city, state, country, zip]
+    compensation: {kind: undo, how: "modify_pending_order_address with the previous address, while the order is pending"}
+    authority: agent
+
+  # "The user can only choose a single payment method different from the
+  # original payment method"; a gift card must cover the total. The system
+  # checks both (it refuses the same method, a short gift card, and an order
+  # with more than one payment).
+  modify_pending_order_payment:
+    entity: order
+    side_effect: reversible
+    input: [order_id, payment_method_id]
+    preconditions: [*own_order, *pending]
+    effect: "the order is paid with the method given, and the original method is refunded"
+    identity: [order_id, payment_method_id]
+    compensation: {kind: counteract, how: "the system refuses a second change of payment on an order, so nothing here reverses it; a person can"}
+    authority: agent
+
+  # "This action can only be called once ... The agent will not be able to
+  # modify or cancel the order anymore."
+  modify_pending_order_items:
+    entity: order
+    side_effect: irreversible
+    input: [order_id, item_ids, new_item_ids, payment_method_id]
+    preconditions: [*own_order, *pending]
+    effect: {status: pending (items modified)}
+    identity: order_id
+    compensation: {kind: none, how: "the order cannot be modified or cancelled again by the agent"}
+    authority: agent
+
+  # The refund goes to the original payment method or an existing gift card;
+  # the system refuses anything else.
+  return_delivered_order_items:
+    entity: order
+    side_effect: irreversible
+    input: [order_id, item_ids, payment_method_id]
+    preconditions: [*own_order, {field: status, equals: [delivered]}]
+    effect: {status: return requested}
+    identity: order_id
+    compensation: {kind: none, how: "no operation here withdraws a return request"}
+    authority: agent
+
+  exchange_delivered_order_items:
+    entity: order
+    side_effect: irreversible
+    input: [order_id, item_ids, new_item_ids, payment_method_id]
+    preconditions: [*own_order, {field: status, equals: [delivered]}]
+    effect: {status: exchange requested}
+    identity: order_id
+    compensation: {kind: none, how: "no operation here withdraws an exchange request"}
+    authority: agent
+
+  modify_user_address:
+    entity: user
+    side_effect: reversible
+    input: [user_id, address1, address2, city, state, country, zip]
+    preconditions: [*own_profile]
+    effect: "the user's default address is the one given"
+    identity: [user_id, address1, address2, city, state, country, zip]
+    compensation: {kind: undo, how: "modify_user_address with the previous address"}
+    authority: agent
+
+  transfer_to_human_agents:
+    entity: transfer
+    side_effect: reversible
+    input: [summary]
+    effect: "the customer is handed to a person, with the summary"
+    compensation: {kind: counteract, how: "the person hands the customer back"}
+    authority: agent
+
+# ---------------------------------------------------------------------------
+# 4 · Policies — the policy's own rules, one per id, in its words where it
+# had them. `via` names the operations whose conditions carry each.
+# ---------------------------------------------------------------------------
+policies:
+  P-AUTHENTICATE:
+    rule: at the start of the conversation the user's identity is authenticated by locating their user id from their email, or from their name and zip code — even when the user gives a user id (R-1)
+    via: [find_user_id_by_email, find_user_id_by_name_zip]
+    concern: security
+    facet: authenticity
+  P-ONE-USER:
+    rule: one user per conversation; any request about another user is denied
+    via: [get_user_details, get_order_details, cancel_pending_order, modify_pending_order_address, modify_pending_order_payment, modify_pending_order_items, return_delivered_order_items, exchange_delivered_order_items, modify_user_address]
+    concern: security
+    facet: confidentiality
+  P-CONFIRM:
+    rule: before any write — cancel, modify, return, exchange — the agent lists the action's details and has the user's explicit yes
+    via: [cancel_pending_order, modify_pending_order_address, modify_pending_order_payment, modify_pending_order_items, return_delivered_order_items, exchange_delivered_order_items, modify_user_address]
+    concern: safety
+    facet: operational constraint
+  P-NO-INVENTION:
+    rule: the agent gives no information, knowledge or procedure that neither the user nor the tools provided, and no subjective recommendation or comment
+    via: [get_user_details, get_order_details, get_product_details, get_item_details, list_all_product_types]
+    concern: functional-suitability
+    facet: functional correctness
+  P-ONE-CALL:
+    rule: one tool call at a time, and never a tool call and a reply to the user together
+    via: [get_user_details, get_order_details, cancel_pending_order, exchange_delivered_order_items]
+    addressed_to: model
+    concern: reliability
+  P-DENY:
+    rule: a request against this policy is declined
+    via: [cancel_pending_order, modify_pending_order_address, modify_pending_order_payment, modify_pending_order_items, return_delivered_order_items, exchange_delivered_order_items, modify_user_address]
+    concern: functional-suitability
+    facet: functional correctness
+  P-TRANSFER:
+    rule: the user is handed to a person if and only if the request cannot be handled within these operations; the transfer is made first, and then the user is told exactly "YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON."
+    via: [transfer_to_human_agents]
+    concern: functional-suitability
+    facet: functional appropriateness
+  P-ONCE:
+    rule: the exchange and modify-items operations are called once per order, with every item to change collected into that one call
+    via: [modify_pending_order_items, exchange_delivered_order_items]
+    concern: functional-suitability
+    facet: functional correctness
+  P-CANCEL:
+    rule: an order is cancelled only while pending, after the status is checked, and only once the user confirms the order id and a reason that is 'no longer needed' or 'ordered by mistake'; the total is refunded to the original method, at once to a gift card, otherwise in 5 to 7 business days
+    via: [cancel_pending_order]
+    concern: functional-suitability
+    facet: functional correctness
+  P-MODIFY:
+    rule: a pending order's shipping address, payment method or item options may change, and nothing else; the status is checked first
+    via: [modify_pending_order_address, modify_pending_order_payment, modify_pending_order_items]
+    concern: functional-suitability
+    facet: functional correctness
+  P-MODIFY-PAYMENT:
+    rule: the new payment method is a single method different from the original; a gift card must cover the total
+    via: [modify_pending_order_payment]
+    concern: security
+    facet: integrity
+  P-MODIFY-ITEMS:
+    rule: each item changes to an available item of the same product with different options, never another product type; the user gives a payment method for the difference, and a gift card must cover it; the user is reminded to confirm every item to modify, because the order can then be neither modified nor cancelled
+    via: [modify_pending_order_items]
+    concern: functional-suitability
+    facet: functional correctness
+  P-RETURN:
+    rule: only a delivered order's items are returned, after the status is checked; the user confirms the order id and the items; the refund goes to the original payment method or an existing gift card
+    via: [return_delivered_order_items]
+    concern: functional-suitability
+    facet: functional correctness
+  P-EXCHANGE:
+    rule: only a delivered order's items are exchanged, after the status is checked, each for an available item of the same product with different options; the user is reminded to confirm every item to exchange; a payment method covers the difference, and a gift card must cover it; no new order is placed
+    via: [exchange_delivered_order_items]
+    concern: functional-suitability
+    facet: functional correctness
+
+# ---------------------------------------------------------------------------
+# 5 · External contracts
+# ---------------------------------------------------------------------------
+external:
+  store:
+    owns: [user, payment_method, order, product, item]
+    operations: [find_user_id_by_email, find_user_id_by_name_zip, get_user_details, get_order_details, get_product_details, get_item_details, list_all_product_types, cancel_pending_order, modify_pending_order_address, modify_pending_order_payment, modify_pending_order_items, return_delivered_order_items, exchange_delivered_order_items, modify_user_address]
+    # Unlike the airline's, this policy never says the system leaves its
+    # checks to the agent, and its tools check most of them: an order's
+    # status for cancel, modify-items, return and exchange; the reason for a
+    # cancellation; the product, availability and count of new items; a gift
+    # card's balance; a payment method in the user's profile; the refund
+    # destination of a return. What they do not check (R-2): whose order or
+    # profile it is; a pending order's address after its items were modified
+    # (the address tool asks only that "pending" appear in the status); and
+    # an exchange that asks for the very items it gives back.
+    refusal_is_a_result: >
+      A call the system refuses answers with an error naming why, and changes
+      nothing. A call that breaks a rule of this spec the system does not
+      check is carried out.
+    consistency: every answer is the record as it stands after the call
+    failure_modes: [unknown_record]
+  human_desk:
+    owns: [transfer]
+    operations: [transfer_to_human_agents]
+    receives: [transfer]
+
+# ---------------------------------------------------------------------------
+# 6 · Required properties — the policy states none.
+# ---------------------------------------------------------------------------
+required:
+  properties: []
+  undeclared:
+    - latency
+    - cost
+    - availability
+    - data residency
+    - retention
+
+# ---------------------------------------------------------------------------
+# 7 · Conformance — none claimed. This spec describes an agent its author did
+# not build, for assessing it; the catalogs' obligations are its builder's.
+# ---------------------------------------------------------------------------
+conformance:
+  archetypes: [A5]
+  aac:
+    version: "0.16"
+    claims: none claimed; written to assess an agent built by others, from its published policy
