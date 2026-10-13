@@ -20,7 +20,7 @@ what actually changed in that world, not only what the agent said.
   model-played customer: `actor: {kind: model, via: langwatch, model: …}` hands
   the customer to LangWatch Scenario's user simulator (an optional extra), still
   judged by state, and every result says whether it was model-driven. The suite
-  has 377 passing tests, and 14 more for the model-played customer where the
+  has 392 passing tests, and 14 more for the model-played customer where the
   `langwatch` extra is installed.
 - **Planned:** most of the outside tools AgentTwin intends to adopt rather than
   build. Of those listed in [ADOPTION.md](ADOPTION.md), only **Hypothesis**
@@ -32,10 +32,20 @@ what actually changed in that world, not only what the agent said.
   adopted so far. LLM graders, a model-driven red team, realistic data
   volume, network faults and record-and-replay are still planned or being
   evaluated.
-- **An agent we did not build:** [examples/tau2-airline](examples/tau2-airline/)
-  assesses τ²-bench's airline agent from its published policy and tool
-  interfaces alone, and compares AgentTwin's verdicts with τ²'s own on 467
-  trajectories, with every disagreement explained.
+- **Agents we did not build:** τ²-bench's
+  [airline](examples/tau2-airline/), [retail](examples/tau2-retail/) and
+  [telecom](examples/tau2-telecom/) agents, each assessed from its published
+  policy and tool interfaces alone. AgentTwin's verdicts are compared with
+  τ²'s own on 2,472 offline trajectories, and every disagreement has a
+  stated cause. Telecom is a reduced version: its customer acts on their own
+  phone, which the format cannot describe. The shared stand-in and judges
+  are in [examples/tau2-common](examples/tau2-common/).
+
+  | Domain | Tasks | Trajectories | Rule-breaking writes that land: τ² / AgentTwin fails | Another customer's record read: τ² / AgentTwin | False alarms on gold |
+  |---|---|---|---|---|---|
+  | airline | 50 | 467 | 188 / 188 (and 89 that state cannot show: 89 / 0) | 0 / 50 | 2 |
+  | retail | 114 | 873 | 309 / 309 | 0 / 114 | 0 |
+  | telecom (agent's side, base split) | 114 | 1,132 | 50 / 491 | 0 / 114 | 0 |
 - The worked example worlds live with the
   [reference agent](https://github.com/dataagentsai/reference-agent). This
   repository's own tests use a lending library, so the format is tested on a
