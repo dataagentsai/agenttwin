@@ -305,3 +305,48 @@ async def test_registering_a_claim_creates_it_and_returns_its_reference() -> Non
     assert (row["status"], row["policy_id"], row["policyholder_id"], row["incident_type"]) == (
         "registered", "POL-010001", "PH-1001", "collision",
     )
+
+
+# ------------------------------------------- an input takes its field's type (T-113)
+
+# T-113 (12 Oct, found by B2's property tests): `register_claim` took
+# `incident_type` as any string, because the input was typed from the policy it
+# acts on, which has no such field, and an enum's values never reached the
+# schema. An input is typed by the field it is written into (AOAS schema,
+# `operation.input`), and an enum input takes only its values.
+
+# [name, arguments, refused, the new claim's field → value (when not refused)]
+REGISTERS = [
+    ("a declared type is taken", {"incident_type": "theft"}, False, {"incident_type": "theft"}),
+    ("an empty type is refused", {"incident_type": ""}, True, {}),
+    ("a type the spec does not have is refused", {"incident_type": "meteor"}, True, {}),
+    ("an undeclared text field starts empty, not null", {"incident_type": "glass"}, False, {"note": ""}),
+]
+
+
+@pytest.mark.skipif(not FNOL.exists(), reason="the motor-claims world is not checked out alongside")
+async def test_the_claim_type_is_one_the_spec_declares() -> None:
+    live = Live.start(load(FNOL))
+    srv = project(live, unknown_record="result")
+    tools = {t.name: t for t in await srv.list_tools()}
+    schema = tools["register_claim"].input_schema["properties"]["incident_type"]
+    assert schema.get("enum") == ["collision", "theft", "fire", "flood", "glass", "vandalism"], schema
+
+
+@pytest.mark.skipif(not FNOL.exists(), reason="the motor-claims world is not checked out alongside")
+@pytest.mark.parametrize(("name", "arguments", "refused", "fields"), REGISTERS, ids=[r[0] for r in REGISTERS])
+async def test_registering_a_claim_takes_only_declared_values(
+    name: str, arguments: dict[str, Any], refused: bool, fields: dict[str, Any]
+) -> None:
+    live = Live.start(load(FNOL))
+    before = dict(live.rows["claim"])
+    srv = project(live, unknown_record="result")
+    mine = {SESSION_META: {"policyholder_id": "PH-1001"}}
+    result = await call(srv, "register_claim", {"id": "POL-010001", **arguments}, mine)
+    if refused:
+        assert result.is_error, result
+        assert live.rows["claim"] == before, "a refused call creates nothing"
+        assert live.count("register_claim") == 0
+        return
+    row = live.rows["claim"][result.structured_content["created"]["id"]]
+    assert {f: row[f] for f in fields} == fields

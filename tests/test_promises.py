@@ -48,15 +48,11 @@ WORLDS = [
         "motor claims",
         "clean-ai-engineering/gates/motor-claims-fnol/worlds/motor-claims-fnol.yaml",
         40,
-        {
-            # F-1 (2026-10-11). `register_claim` takes `incident_type` as any
-            # string — its inputSchema says `string`, not the AOAS's enum — and
-            # the stand-in stores it, so a claim of type '' exists; and the
-            # claim it creates leaves every field `creates.sets` does not name
-            # as null (`note`), where the AOAS types it text. Both surface when
-            # the claim is listed.
-            ("list_claims", "AOAS shape"): "incident_type: ",
-        },
+        # F-1 (2026-10-11, T-113) is fixed: `register_claim` took
+        # `incident_type` as any string and left `note` null on the claim it
+        # created. Both surfaced here when the claim was listed, as
+        # ("list_claims", "AOAS shape"): "incident_type: ".
+        {},
     ),
 ]
 

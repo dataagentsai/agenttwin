@@ -267,6 +267,9 @@ class Input(BaseModel):
 
     name: str
     type: Literal["str", "int", "float", "bool"] = "str"
+    values: tuple[str, ...] = ()
+    """The values an enum field takes, when the input is written into one: the
+    tool's schema lists them and the stand-in refuses any other (T-113)."""
 
 
 class _Known(dict):  # type: ignore[type-arg]

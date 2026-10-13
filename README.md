@@ -4,7 +4,7 @@ AgentTwin tests an AI agent by placing the real agent in a simulated world (its
 customers, the systems it calls, their data and their faults) and then checking
 what actually changed in that world, not only what the agent said.
 
-**Status: version 0.12.0, released 11 October 2026, a working draft.**
+**Status: version 0.13.0, released 13 October 2026, a working draft.**
 
 - **Done:** the world format, AWD (Agent World Description: [SPEC.md](SPEC.md),
   [schema/](schema/)). Also done: the loader, and the simulator that presents a
@@ -19,8 +19,11 @@ what actually changed in that world, not only what the agent said.
   each case's goal is judged by what changed in the world. 0.12.0 adds a
   model-played customer: `actor: {kind: model, via: langwatch, model: …}` hands
   the customer to LangWatch Scenario's user simulator (an optional extra), still
-  judged by state, and every result says whether it was model-driven. The suite
-  has 392 passing tests, and 14 more for the model-played customer where the
+  judged by state, and every result says whether it was model-driven. 0.13.0
+  types each tool input by the field it is written into, so an enum input
+  takes only its values, and fills a created row's untouched fields with their
+  type's empty value (T-113, found by 0.10.0's own property tests). The suite
+  has 397 passing tests, and 14 more for the model-played customer where the
   `langwatch` extra is installed.
 - **Planned:** most of the outside tools AgentTwin intends to adopt rather than
   build. Of those listed in [ADOPTION.md](ADOPTION.md), only **Hypothesis**

@@ -219,7 +219,9 @@ def compose(wf: WorldFile, doc: dict) -> World:
                 miss,
             )
 
-            inputs = _inputs(op.get("input", ()), op["entity"], entities[op["entity"]])
+            inputs = _inputs(
+                op.get("input", ()), op["entity"], entities[op["entity"]], _targets(op, entities)
+            )
             declared = {i.name for i in inputs}
 
             sets: dict[str, Any] = {}
@@ -366,24 +368,55 @@ TYPES = {"int": "int", "money": "int", "number": "float", "bool": "bool"}
 else — text, id, email, a date — crosses as a string."""
 
 
-def _inputs(names, entity_name: str, entity: Entity) -> tuple[Input, ...]:
+def _targets(op: dict, entities: dict[str, Entity]) -> dict[str, Field_]:
+    """Input name → the field it is written into: `$name` in the operation's
+    `effect` (a field of its own entity) or in `creates.sets` (a field of the
+    entity it creates). AOAS `operation.input`: an input is typed by that field
+    (T-113 — `register_claim`'s `incident_type` lands on the claim, not the
+    policy it acts on, and was typed as any string)."""
+    found: dict[str, Field_] = {}
+    written = [(op.get("effect"), entities.get(op["entity"]))]
+    if isinstance(op.get("creates"), dict):
+        written.append((op["creates"].get("sets"), entities.get(op["creates"].get("entity"))))
+    for sets, entity in written:
+        if not isinstance(sets, dict) or entity is None:
+            continue
+        for field, value in sets.items():
+            if isinstance(value, str) and value.startswith("$") and field in entity.fields:
+                found.setdefault(value[1:], entity.fields[field])
+    return found
+
+
+def _inputs(
+    names, entity_name: str, entity: Entity, targets: dict[str, Field_] | None = None
+) -> tuple[Input, ...]:
     """The operation's inputs, minus the one naming the row it acts on.
 
     The key arrives as the tool's first parameter under the entity's own name for
     it, so an input named `<entity>_<key>` is that parameter and not a second one
     — the convention the agent's own argument binding already speaks.
 
-    Every other input is typed from the field it shares a name with, and from
-    nothing when it shares a name with none — a spec may take an input the entity
-    does not store.
+    Every other input is typed from the field it is written into (`targets`),
+    else from the field of the acted-on entity it shares a name with, and from
+    nothing when there is neither — a spec may take an input nothing stores. An
+    enum field's input carries its values, so the tool's schema lists them.
     """
     key_names = {entity.key, f"{entity_name}_{entity.key}"}
     kept = []
     for name in names:
         if name in key_names:
             continue
-        field = entity.fields.get(name)
-        kept.append(Input(name=name, type=TYPES.get(field.type, "str") if field else "str"))
+        field = (targets or {}).get(name) or entity.fields.get(name)
+        if field is None:
+            kept.append(Input(name=name))
+            continue
+        kept.append(
+            Input(
+                name=name,
+                type=TYPES.get(field.type, "str"),
+                values=field.values if field.type == "enum" else (),
+            )
+        )
     return tuple(kept)
 
 

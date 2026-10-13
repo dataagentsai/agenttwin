@@ -229,6 +229,15 @@ should record.
 | unknown row, or not the caller's — `unknown_record="result"` | result | `{found: false, allowed: false, reason: "no <entity> <key>"}` |
 | the same — `unknown_record="raise"` (the default) | protocol error (`isError`) | — |
 | the hook refused | protocol error (`isError`) | — |
+| an input its field could not hold — an enum input off its values | protocol error (`isError`), before anything runs | — |
+
+**Inputs and new rows (0.13.0, T-113).** Each input beyond the key is typed by
+the field it is written into — `$name` in the operation's `effect`, or in
+`creates.sets` on the entity it creates — or else by the acted-on entity's field
+of that name, as the AOAS states. An enum input's `inputSchema` lists the enum's
+values and any other value is refused. A created row's field that nothing names
+starts at its type's empty value (`''` text, `0` int or money, `false` bool);
+one with no empty value (an id, an enum, a date) is absent until set.
 
 `unknown_record="result"` is the **documented behaviour to build against**: the
 AOAS lists `unknown_record` as a failure mode a caller reads, and a protocol

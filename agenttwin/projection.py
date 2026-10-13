@@ -615,7 +615,11 @@ def _create(live: Live, action: Action, row: dict, given: dict[str, Any]) -> dic
     entity = live.world.entities[made.entity]
     pattern = entity.fields[entity.key].pattern
     taken = set(live.rows.setdefault(made.entity, {}))
-    new = {f: None for f in entity.fields}
+    # A field nothing names starts at its type's empty value, never null — a
+    # claim's note is text, and '' is the note nobody has written yet. A type
+    # with no empty value (an id, an enum, a date) is absent until set (AOAS
+    # `creates.sets`, T-113).
+    new = {f: EMPTY.get(spec.type) for f, spec in entity.fields.items()}
     new.update(made.sets)
     new.update({f: given[name] for f, name in made.sets_from_input.items() if name in given})
     new.update({f: row.get(src) for f, src in made.from_row.items()})
@@ -662,6 +666,18 @@ def _session(ctx: Context | None) -> dict[str, object] | None:
 
 ANNOTATIONS: dict[str, type] = {"str": str, "int": int, "float": float, "bool": bool}
 
+EMPTY: dict[str, object] = {"text": "", "int": 0, "number": 0, "money": 0, "bool": False}
+"""A created row's field nothing names, by its type (AOAS `creates.sets`, T-113)."""
+
+
+def _annotation(given: Input) -> Any:
+    """The parameter's type: an enum input is a `Literal` of its values, so the
+    schema the SDK derives lists them and the SDK refuses any other before the
+    handler runs (T-113: a claim of type '' was stored)."""
+    if given.values:
+        return Literal[given.values]  # type: ignore[valid-type]
+    return ANNOTATIONS[given.type]
+
 
 def _typed(handler, key_field: str | None, inputs: tuple[Input, ...] = ()):
     """Give the handler a signature and annotations MCP can build a schema from.
@@ -677,9 +693,7 @@ def _typed(handler, key_field: str | None, inputs: tuple[Input, ...] = ()):
     # the system reads from its own row is never a parameter — which is why a
     # refund takes no amount (E3, F-014) and a change of address takes one.
     declared = [
-        inspect.Parameter(
-            i.name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=ANNOTATIONS[i.type]
-        )
+        inspect.Parameter(i.name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=_annotation(i))
         for i in inputs
     ]
     # A listing (`key_field is None`) has no row to name, so no key parameter.
@@ -696,7 +710,7 @@ def _typed(handler, key_field: str | None, inputs: tuple[Input, ...] = ()):
     handler.__signature__ = inspect.Signature(params, return_annotation=dict[str, Any])
     handler.__annotations__ = {
         **({key_field: str} if key_field is not None else {}),
-        **{i.name: ANNOTATIONS[i.type] for i in inputs},
+        **{i.name: _annotation(i) for i in inputs},
         "ctx": Context,
         "return": dict[str, Any],
     }
