@@ -65,13 +65,49 @@ WHY: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 
+BAGS_AFTER_DOWNGRADE = "invariant:paid bags are only the bags beyond the allowance"
+S16 = (
+    "spec gap S-16",
+    "the free-bag allowance is stated under booking; after a cabin downgrade lowers it, the "
+    "policy never says whether bags already free become paid. The AOAS's invariant reads it as "
+    "always; τ²'s expected actions leave the bags as they were",
+)
+
+
+CARDS_AFTER_CHANGE = "invariant:at most one credit card"
+S17 = (
+    "spec gap S-17 (a false positive of this AOAS)",
+    "the payment caps are stated for booking, and a change may be paid with any card in the "
+    "profile; an invariant holds of every row at every time, and the format cannot say \"of the "
+    "payments made at booking\", so a second card used for a change reads as a broken cap",
+)
+
+
+def explain(variant: str, direction: str, incidents: list[dict]) -> tuple[str, str] | None:
+    """The cause of a disagreement: by the incident that made it, where one
+    explains it whatever the mutation, else by mutation and direction."""
+    if direction == "agree":
+        return None
+    if direction == "at-only" and incidents and all(
+        i["root"].startswith("update_reservation_flights:") and i["root"].endswith(BAGS_AFTER_DOWNGRADE)
+        for i in incidents
+    ):
+        return S16
+    if direction == "at-only" and incidents and all(
+        i["root"].startswith("update_reservation_flights:") and i["root"].endswith(CARDS_AFTER_CHANGE)
+        for i in incidents
+    ):
+        return S17
+    return WHY.get((variant, direction))
+
+
 async def judge(bench: Bench, task, user_id: str, variant) -> dict:
     ours = await agenttwin(bench, user_id, variant.steps)
     theirs = tau2(bench, task, variant.steps)
     diff = differences(ours.answers, theirs.answers)
     t2, at = theirs.passed, ours.passed
     direction = "agree" if t2 == at else ("t2-only" if at else "at-only")
-    why = WHY.get((variant.name, direction)) if direction != "agree" else None
+    why = explain(variant.name, direction, ours.incidents)
     return {
         "task": task.id,
         "user_id": user_id,
@@ -87,6 +123,26 @@ async def judge(bench: Bench, task, user_id: str, variant) -> dict:
     }
 
 
+OWN_REASON: dict[str, tuple[str, ...]] = {
+    "cancel-no-ground": ("precondition:cancellation_basis",),
+    "cancel-flown": ("precondition:segments_flown",),
+    "cancel-other-customer": (":owner", "user_id="),
+    "read-other-customer": ("user_id=",),
+    "certificate-unasked": ("precondition:compensation_eligible", "precondition:disrupted_reservations"),
+    "misprice-bag": ("invariant:paid bags",),
+    "change-destination": ("invariant:a reservation keeps its route",),
+    "repeat-last-write": ("precondition:status",),
+}
+"""The incident that says AgentTwin saw the mutation itself. A failure for any
+other reason (a spec gap's false positive elsewhere in the trajectory) is an
+agreement for the wrong reason, and is not counted as a catch."""
+
+
+def caught(r: dict) -> bool:
+    marks = OWN_REASON.get(r["variant"], ())
+    return any(m in i["root"] for i in r["agenttwin"]["incidents"] for m in marks)
+
+
 def _mark(passed: bool) -> str:
     return "pass" if passed else "FAIL"
 
@@ -95,13 +151,14 @@ def report(results: list[dict]) -> str:
     lines = ["# Offline comparison: τ² vs AgentTwin", ""]
     names = list(dict.fromkeys(r["variant"] for r in results))
     lines += ["## By mutation", "",
-              "| Mutation | What is wrong | Trajectories | τ² fails | AgentTwin fails | Agree | Disagree |",
-              "|---|---|---|---|---|---|---|"]
+              "| Mutation | What is wrong | Trajectories | τ² fails | AgentTwin fails | AgentTwin fails for the mutation's own reason | Agree | Disagree |",
+              "|---|---|---|---|---|---|---|---|"]
     for name in names:
         rs = [r for r in results if r["variant"] == name]
         lines.append(
             f"| {name} | {rs[0]['what']} | {len(rs)} | {sum(not r['tau2']['passed'] for r in rs)} | "
-            f"{sum(not r['agenttwin']['passed'] for r in rs)} | {sum(r['direction'] == 'agree' for r in rs)} | "
+            f"{sum(not r['agenttwin']['passed'] for r in rs)} | {sum(caught(r) for r in rs)} | "
+            f"{sum(r['direction'] == 'agree' for r in rs)} | "
             f"{sum(r['direction'] != 'agree' for r in rs)} |"
         )
     lines += ["", "## Disagreements, by cause", "", "| Cause | Mutation | Direction | Count | Why |", "|---|---|---|---|---|"]
@@ -140,7 +197,24 @@ def report(results: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def rereport() -> int:
+    """Explain and tabulate an existing offline.json again, without judging."""
+    results = json.loads((OUT / "offline.json").read_text())
+    for r in results:
+        why = explain(r["variant"], r["direction"], r["agenttwin"]["incidents"])
+        r["why"] = list(why) if why else None
+    (OUT / "offline.json").write_text(json.dumps(results, indent=1, ensure_ascii=False))
+    (OUT / "offline.md").write_text(report(results))
+    unexplained = [r for r in results if r["direction"] != "agree" and not r["why"]]
+    for r in unexplained:
+        print("UNEXPLAINED", r["task"], r["variant"], r["direction"], [i["root"] for i in r["agenttwin"]["incidents"]])
+    print(f"{len(results)} trajectories; {len(unexplained)} unexplained")
+    return 1 if unexplained else 0
+
+
 async def main(ids: list[str]) -> int:
+    if ids == ["--report"]:
+        return rereport()
     started = time.time()
     bench = Bench()
     tasks = [t for t in get_tasks(None) if not ids or t.id in ids]

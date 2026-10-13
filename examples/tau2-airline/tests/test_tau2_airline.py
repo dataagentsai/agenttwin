@@ -202,3 +202,40 @@ async def test_both_judges(bench: Bench, name, task_id, steps, roots, tau2_passe
     assert sorted(i["root"] for i in ours.incidents) == sorted(roots)
     assert theirs.passed is tau2_passes
     assert differences(ours.answers, theirs.answers) == [], "the stand-in answered as τ²'s environment does"
+
+
+# ------------------------------------------------------ explaining a disagreement
+
+from tau2_airline.offline import caught, explain  # noqa: E402
+
+BAGS = "update_reservation_flights:JG7FMM:invariant:paid bags are only the bags beyond the allowance"
+CARDS = "update_reservation_flights:M20IZO:invariant:at most one credit card"
+
+# name, mutation, direction, incident roots, expected cause (None: no cause)
+CAUSES = [
+    ("agreement needs none", "gold", "agree", [], None),
+    ("a downgrade's bags, whatever the mutation", "attempt-refused", "at-only", [BAGS], "spec gap S-16"),
+    ("a change's second card", "gold", "at-only", [CARDS], "spec gap S-17 (a false positive of this AOAS)"),
+    ("by mutation and direction", "remove-bag", "t2-only", [], "spec gap S-12"),
+    ("privacy", "read-other-customer", "at-only", ["reservation:4WQ150:user_id=x"], "AgentTwin catches"),
+    ("nothing known", "gold", "t2-only", [], None),
+]
+
+
+@pytest.mark.parametrize(("name", "variant", "direction", "roots", "cause"), CAUSES, ids=[c[0] for c in CAUSES])
+def test_every_disagreement_has_a_stated_cause(name, variant, direction, roots, cause) -> None:
+    why = explain(variant, direction, [{"root": r} for r in roots])
+    assert (why[0] if why else None) == cause
+
+
+# name, mutation, incident roots, caught for its own reason
+CAUGHT = [
+    ("the rule it broke", "cancel-no-ground", ["cancel_reservation:X:precondition:cancellation_basis"], True),
+    ("another rule, elsewhere", "change-basic-economy-flight", [CARDS], False),
+    ("nothing", "remove-bag", [], False),
+]
+
+
+@pytest.mark.parametrize(("name", "variant", "roots", "expected"), CAUGHT, ids=[c[0] for c in CAUGHT])
+def test_a_catch_is_for_the_mutation_s_own_reason(name, variant, roots, expected) -> None:
+    assert caught({"variant": variant, "agenttwin": {"incidents": [{"root": r} for r in roots]}}) is expected

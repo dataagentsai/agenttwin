@@ -157,6 +157,14 @@ entities:
       certificates_used: {type: int, derived: "distinct travel certificates in the reservation's payments"}
       credit_cards_used: {type: int, derived: "distinct credit cards in the reservation's payments"}
       gift_cards_used: {type: int, derived: "distinct gift cards in the reservation's payments"}
+    # READING (S-16, S-17): the policy states the passenger cap, the payment
+    # caps and the bag allowance under "Book flight". An invariant holds of
+    # every row at every time, and the format cannot say "at booking". Kept
+    # as invariants, and the offline run shows what that costs: a later
+    # change paid with another card reads as a broken cap (S-17, a false
+    # positive of this reading — the policy allows it), and a cabin downgrade
+    # that lowers the allowance leaves free bags that now read as unpaid
+    # (S-16, which the policy never settles).
     invariants:
       - name: at most five passengers
         when: {field: passenger_count, at_least: 0}

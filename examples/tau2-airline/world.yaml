@@ -19,9 +19,10 @@ fidelity:
     - "seats: τ² does not release seats on cancellation or take them on a flight change, and neither does this world"
     - "time: the clock is the policy's fixed 2024-05-15 15:00 EST; nothing ages during a conversation"
     - the customer's reason for cancelling, and whether they asked for compensation, which no record holds
-  # Each offline trajectory's answers are compared with τ²'s own environment
-  # answering the same calls; the README reports the result.
-  verified_against: null
+  # The answers, not the behaviour: the behaviour is τ²'s own code. What this
+  # checks is everything AgentTwin put in the path — the MCP surface, the
+  # schemas built from τ²'s signatures, argument handling, the error words.
+  verified_against: "every answer to 1,512 calls in 467 offline trajectories equalled τ²'s own environment's, byte for byte (results/offline.md, 13 Oct 2026)"
 systems:
   # `real`: the stand-in's behaviour is τ²'s own tool code, which is the
   # system of record of this benchmark. AgentTwin holds the view of it the

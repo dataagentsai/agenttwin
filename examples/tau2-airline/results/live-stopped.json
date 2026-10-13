@@ -1,0 +1,6 @@
+{
+ "task": "0",
+ "rate_limited": "litellm.RateLimitError: RateLimitError: GroqException - {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-20b` in organization `org_[redacted]` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5230, Requested 3308. Please try again in 4.035s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing\",\"type\":\"tokens\",\"code\":\"rate_limit_exceeded\"}}\n",
+ "calls": 3,
+ "tokens": 4201
+}
