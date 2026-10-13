@@ -49,6 +49,11 @@ what actually changed in that world, not only what the agent said.
   | airline | 50 | 467 | 188 / 188 (and 89 that state cannot show: 89 / 0) | 0 / 50 | 2 |
   | retail | 114 | 873 | 309 / 309 | 0 / 114 | 0 |
   | telecom (agent's side, base split) | 114 | 1,132 | 50 / 491 | 0 / 114 | 0 |
+- **Generated attacks:** 180 injection cases (60 each from PyRIT, AgentDojo
+  and the built-in templates) were planted in untrusted notes on both reference
+  agents. A scripted model obeyed every one of them, and all 180 held, judged
+  by the world's state. The run record and the one command that regenerates
+  it are in [examples/attacks](examples/attacks/).
 - The worked example worlds live with the
   [reference agent](https://github.com/dataagentsai/reference-agent). This
   repository's own tests use a lending library, so the format is tested on a
