@@ -1,0 +1,499 @@
+# Application Operation Agent Spec — τ²-bench's airline agent
+#
+# Written from two sources only, both at tau2-bench@4ce7c03:
+#   - the airline policy (vendor/tau2/policy.md, verbatim), and
+#   - the tool signatures and docstrings of the airline tool set.
+# Not from the tasks, their expected actions, or τ²'s evaluator. Where the
+# policy is silent, ambiguous, or says something no record can carry, the
+# comment says so and the README's findings table carries it with an id (S-n).
+#
+# An agent we did not build: nothing here is a design decision of ours. Where
+# this file had to choose a reading, the comment is marked READING.
+#
+# Validate: node <clean-ai-engineering>/tools/validate-aoas.js tau2-airline.aoas.yaml
+#
+# Derived fields. The condition vocabulary compares one field of one row with
+# a constant (or the session). Most airline rules are about another entity
+# (a reservation's flight's status on its date), an OR (four grounds for a
+# cancellation), a count (passengers, payment methods by kind) or arithmetic
+# (free bags = allowance x passengers). Each such fact is a field with
+# `derived:` saying in words what computes it, and the world computes it.
+# Every one is a place the rule lives in code rather than in the vocabulary
+# (finding S-1); the README lists them.
+
+apiVersion: aoas/v0
+agent:
+  id: tau2-airline
+  version: 0.1.0
+  currency: USD
+
+sources:
+  - tau2-bench@4ce7c0397c1eb65c9bbe59aeacfe1ca44a1cd699 data/tau2/domains/airline/policy.md
+  - tau2-bench@4ce7c0397c1eb65c9bbe59aeacfe1ca44a1cd699 airline tool signatures and docstrings
+
+# ---------------------------------------------------------------------------
+# 1 · Purpose
+# ---------------------------------------------------------------------------
+purpose:
+  serves: >
+    A customer of one airline who gives their user id, about their own flight
+    reservations. The policy's current time is 2024-05-15 15:00 EST.
+  does:
+    - booking a reservation
+    - changing a reservation's flights or cabin
+    - adding checked bags
+    - changing passenger details
+    - cancelling a reservation, with the refund that follows
+    - a travel certificate as compensation, where the policy allows one
+    - handing the customer to a person
+  refuses:
+    - id: R-PASSENGER-COUNT
+      what: changing the number of passengers on a reservation — not even a person can
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["Can you add my sister to the booking?", "Please take one passenger off the reservation"]
+      answered_by: [loop]
+    - id: R-INSURANCE-LATER
+      what: adding travel insurance after the initial booking
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["I'd like to add insurance to my existing reservation"]
+      answered_by: [loop]
+    - id: R-REMOVE-BAGS
+      what: removing checked bags from a reservation
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["Take one checked bag off my booking and refund it"]
+      answered_by: [loop]
+    - id: R-BASIC-ECONOMY-CHANGE
+      what: changing the flights of a basic economy reservation (its cabin may still change)
+      concern: functional-suitability
+      facet: functional correctness
+      examples: ["Move my basic economy flight to Friday"]
+      answered_by: [loop]
+    - id: R-UNEARNED-COMPENSATION
+      what: compensation the customer did not ask for, or for any reason but a cancelled or delayed flight, or to a regular member flying economy or basic economy with no insurance
+      concern: safety
+      facet: operational constraint
+      examples: ["My seat was uncomfortable, can I get a voucher?", "I'm a regular member in economy without insurance and my flight was cancelled — compensate me"]
+      answered_by: [loop]
+    - id: R-ADVICE
+      what: information, knowledge or procedures not given by the customer or the tools, and subjective recommendations
+      concern: functional-suitability
+      facet: functional appropriateness
+      examples: ["Which airline is best for this route?", "Is it worth upgrading to business?"]
+      answered_by: [loop]
+  # The policy names no offer on refusal; "You should deny user requests that
+  # are against this policy" is a bare no (S-2).
+
+# ---------------------------------------------------------------------------
+# 2 · Entities and state
+# ---------------------------------------------------------------------------
+entities:
+  user:
+    key: user_id
+    fields:
+      user_id: {type: id, pattern: "[a-z]+_[a-z]+_[0-9]{4}"}
+      email: {type: email, pii: true}
+      dob: {type: date, pii: true}
+      membership: {type: enum, values: [regular, silver, gold]}
+      # Compensation's three grounds (P-COMPENSATION), as one OR over the user
+      # and every reservation they hold (S-1). READING: "has travel insurance or
+      # flies business" is read as "holds a reservation that is insured or in
+      # business" because the certificate operation names no reservation (S-6).
+      compensation_eligible:
+        type: bool
+        derived: "membership is silver or gold, or the user holds a reservation that is insured or in the business cabin"
+      disrupted_reservations:
+        type: int
+        derived: "the user's reservations with a segment whose flight, on its date, the airline cancelled or delayed"
+
+  payment_method:
+    key: id
+    fields:
+      id: {type: id, pattern: "(credit_card|gift_card|certificate)_[0-9]{7}"}
+      user_id: {type: id, ref: user.user_id}
+      source: {type: enum, values: [credit_card, gift_card, certificate]}
+      amount: {type: money}          # a gift card's or certificate's balance; a credit card has none
+
+  reservation:
+    key: reservation_id
+    fields:
+      reservation_id: {type: id, pattern: "[A-Z0-9]{6}"}
+      user_id: {type: id, ref: user.user_id}
+      origin: {type: text}
+      destination: {type: text}
+      flight_type: {type: enum, values: [one_way, round_trip]}
+      cabin: {type: enum, values: [basic_economy, economy, business]}
+      insurance: {type: enum, values: ["yes", "no"]}
+      status: {type: enum, of: reservation_status}
+      created_at: {type: timestamp}
+      total_baggages: {type: int}
+      nonfree_baggages: {type: int}
+      passenger_count: {type: int, derived: "the passengers listed on the reservation"}
+      hours_since_booking:
+        type: int
+        derived: "whole hours from created_at to the policy's current time, 2024-05-15 15:00 EST"
+      segments_flown:
+        type: int
+        derived: "segments whose flight, on its date, is flying or has landed"
+      segments_cancelled:
+        type: int
+        derived: "segments whose flight, on its date, the airline cancelled"
+      # The four grounds of P-CANCEL are an OR (S-1). The fourth needs the
+      # customer's reason — "covered by insurance" — which no record holds, so
+      # `insured` here means only that the reservation is insured (S-3).
+      cancellation_basis:
+        type: enum
+        values: [booked_within_24h, airline_cancelled, business, insured, none]
+        derived: "the first that holds, in the policy's order: booked within the last 24 hours; a segment the airline cancelled; the business cabin; insured. Otherwise none"
+      paid_bags_match_allowance:
+        type: bool
+        derived: "nonfree_baggages is total_baggages less the free allowance (by the owner's membership and the cabin, times passengers), and never below zero"
+      route_consistent:
+        type: bool
+        derived: "the first segment leaves from origin; a one-way trip ends at destination; a round trip reaches destination and returns to origin"
+      certificates_used: {type: int, derived: "distinct travel certificates in the reservation's payments"}
+      credit_cards_used: {type: int, derived: "distinct credit cards in the reservation's payments"}
+      gift_cards_used: {type: int, derived: "distinct gift cards in the reservation's payments"}
+    invariants:
+      - name: at most five passengers
+        when: {field: passenger_count, at_least: 0}
+        then: {field: passenger_count, at_most: 5}
+        because: "Each reservation can have at most five passengers"
+      - name: at most one travel certificate
+        when: {field: certificates_used, at_least: 0}
+        then: {field: certificates_used, at_most: 1}
+        because: "at most one travel certificate"
+      - name: at most one credit card
+        when: {field: credit_cards_used, at_least: 0}
+        then: {field: credit_cards_used, at_most: 1}
+        because: "at most one credit card"
+      - name: at most three gift cards
+        when: {field: gift_cards_used, at_least: 0}
+        then: {field: gift_cards_used, at_most: 3}
+        because: "at most three gift cards"
+      - name: paid bags are only the bags beyond the allowance
+        when: {field: total_baggages, at_least: 0}
+        then: {field: paid_bags_match_allowance, equals: [true]}
+        because: "the free allowance by membership and cabin; each extra bag is 50 dollars; do not add bags the user does not need"
+      - name: a reservation keeps its route
+        when: {field: total_baggages, at_least: 0}
+        then: {field: route_consistent, equals: [true]}
+        because: "reservations can be modified without changing the origin, destination, and trip type"
+
+  # One flight on one date. The tools name it by flight number and date; the
+  # format has one key per entity, so the key is the two joined (S-7).
+  flight:
+    key: id
+    fields:
+      id: {type: id, pattern: "HAT[0-9]{3}/2024-05-[0-9]{2}"}
+      flight_number: {type: id, pattern: "HAT[0-9]{3}"}
+      date: {type: date}
+      origin: {type: text}
+      destination: {type: text}
+      status: {type: enum, values: [available, delayed, on time, flying, landed, cancelled]}
+
+  airport:
+    key: iata
+    fields:
+      iata: {type: id, pattern: "[A-Z]{3}"}
+      city: {type: text}
+
+  transfer:
+    key: id
+    fields:
+      id: {type: id}
+      summary: {type: text}
+
+session:
+  # Who is asking: the user id the customer gives. The policy has no other
+  # proof of identity (S-4).
+  user_id: {type: id, ref: user.user_id}
+
+state_machines:
+  reservation_status:
+    states: [active, cancelled]
+    terminal: [cancelled]
+    transitions:
+      - {from: active, to: cancelled, by: cancel_reservation}
+
+# ---------------------------------------------------------------------------
+# 3 · Operations
+# ---------------------------------------------------------------------------
+conditions:
+  # READING (S-5): the policy never says a customer may act only on their own
+  # reservations. It says the user must provide their user id before a change
+  # or cancellation, and to help locate a reservation "using available tools".
+  # Stated here as ownership, the reading every human agent would take.
+  own_reservation: &own_reservation {field: reservation.user_id, equals_session: user_id}
+  own_profile: &own_profile {field: user.user_id, equals_session: user_id}
+  active: &active {field: reservation.status, equals: [active]}
+
+operations:
+  get_user_details:
+    entity: user
+    side_effect: read
+    input: [user_id]
+    output: user
+    preconditions: [*own_profile]
+    authority: agent
+
+  get_reservation_details:
+    entity: reservation
+    side_effect: read
+    input: [reservation_id]
+    output: reservation
+    preconditions: [*own_reservation]
+    authority: agent
+
+  # A public timetable: nobody's rows. `output: flight[]` is refused by the
+  # validator's unscoped-collection rule (every read of many rows must be
+  # scoped to the caller), so these declare no output (S-8).
+  search_direct_flight:
+    entity: flight
+    side_effect: read
+    input: [origin, destination, date]
+    authority: agent
+
+  search_onestop_flight:
+    entity: flight
+    side_effect: read
+    input: [origin, destination, date]
+    authority: agent
+
+  get_flight_status:
+    entity: flight
+    side_effect: read
+    input: [flight_number, date]
+    authority: agent
+
+  list_all_airports:
+    entity: airport
+    side_effect: read
+    input: []
+    authority: agent
+
+  # `calculate` (an arithmetic helper) is not declared: an operation must act
+  # on an entity, and a pure function acts on none (S-9). It is served, for
+  # real, beside the declared operations.
+
+  book_reservation:
+    entity: reservation
+    side_effect: irreversible        # repeating it books and charges twice
+    input: [user_id, origin, destination, flight_type, cabin, flights, passengers, payment_methods, total_baggages, nonfree_baggages, insurance]
+    preconditions: [*own_reservation]
+    effect: "a new reservation exists for the user with these flights, passengers, bags and insurance; seats are taken; the payment methods are drawn"
+    identity: [user_id, flights, passengers]
+    compensation: {kind: counteract, how: "cancel_reservation where P-CANCEL allows it; the booking and its refund both stay on the record"}
+    authority: agent
+
+  cancel_reservation:
+    entity: reservation
+    side_effect: irreversible
+    input: [reservation_id]
+    preconditions:
+      - *own_reservation
+      - {field: status, equals: [active]}
+      - {field: segments_flown, at_most: 0}
+      - {field: cancellation_basis, not_equals: [none]}
+    effect: {status: cancelled}
+    identity: reservation_id
+    compensation: {kind: none, how: "a cancelled reservation is not restored; booking again is the customer's own recovery"}
+    authority: agent
+    on_refusal: once any segment has flown, transfer to a person; otherwise none is offered
+
+  update_reservation_flights:
+    entity: reservation
+    side_effect: reversible
+    input: [reservation_id, cabin, flights, payment_id]
+    preconditions: [*own_reservation, *active]
+    effect: "the reservation's flights and cabin are the ones given; the difference in price is charged to, or refunded on, the payment method given"
+    identity: [reservation_id, cabin, flights]
+    compensation: {kind: counteract, how: "change the flights or cabin back, at the prices then current; both changes stay on the record"}
+    authority: agent
+
+  update_reservation_baggages:
+    entity: reservation
+    side_effect: reversible
+    input: [reservation_id, total_baggages, nonfree_baggages, payment_id]
+    preconditions: [*own_reservation, *active]
+    effect: {total_baggages: $total_baggages, nonfree_baggages: $nonfree_baggages}
+    identity: [reservation_id, total_baggages]
+    # Bags cannot be removed (R-REMOVE-BAGS), so nothing undoes this.
+    compensation: {kind: none, how: "bags may be added, not removed"}
+    authority: agent
+
+  update_reservation_passengers:
+    entity: reservation
+    side_effect: reversible
+    input: [reservation_id, passengers]
+    preconditions: [*own_reservation, *active]
+    effect: "the reservation's passengers are the ones given, the same number as before"
+    identity: [reservation_id, passengers]
+    compensation: {kind: undo, how: "update_reservation_passengers with the previous details"}
+    authority: agent
+
+  send_certificate:
+    entity: user
+    side_effect: irreversible
+    input: [user_id, amount]
+    # The amount is the agent's input: 100 or 50 dollars times the passengers
+    # on the disrupted reservation. `amount_from` takes one field
+    # (`entity.field`), and this is arithmetic over a reservation the operation
+    # does not name, so nothing here bounds it (S-6). The tool takes the
+    # figure from the caller; the format's own rule is that an amount never
+    # comes from the conversation (S-10).
+    preconditions:
+      - *own_profile
+      - {field: compensation_eligible, equals: [true]}
+      - {field: disrupted_reservations, at_least: 1}
+    creates: {entity: payment_method, sets: {source: certificate, amount: $amount}, from_row: {user_id: user_id}}
+    identity: [user_id, amount]
+    compensation: {kind: none, how: "a certificate once sent is not recalled"}
+    authority: agent
+
+  transfer_to_human_agents:
+    entity: transfer
+    side_effect: reversible
+    input: [summary]
+    effect: "the customer is handed to a person, with the summary"
+    compensation: {kind: counteract, how: "the person hands the customer back"}
+    authority: agent
+
+# ---------------------------------------------------------------------------
+# 4 · Policies — the policy's own rules, one per id, in its words where it
+# had them. `via` names the operations whose conditions carry each.
+# ---------------------------------------------------------------------------
+policies:
+  P-CONFIRM:
+    rule: before any write to the booking record — booking, changing flights, bags, cabin or passengers — the agent lists the action's details and has the customer's explicit yes
+    via: [book_reservation, update_reservation_flights, update_reservation_baggages, update_reservation_passengers]
+    concern: safety
+    facet: operational constraint
+  P-NO-INVENTION:
+    rule: the agent gives no information, knowledge or procedure that neither the customer nor the tools provided, and no subjective recommendation or comment
+    via: [get_user_details, get_reservation_details, search_direct_flight, search_onestop_flight, get_flight_status, list_all_airports]
+    concern: functional-suitability
+    facet: functional correctness
+  P-ONE-CALL:
+    rule: one tool call at a time, and never a tool call and a reply to the customer together
+    via: [get_user_details, get_reservation_details, book_reservation, cancel_reservation]
+    addressed_to: model
+    concern: reliability
+  P-DENY:
+    rule: a request against this policy is declined
+    via: [cancel_reservation, update_reservation_flights, update_reservation_baggages, update_reservation_passengers, send_certificate]
+    concern: functional-suitability
+    facet: functional correctness
+  P-TRANSFER:
+    rule: the customer is handed to a person if and only if the request cannot be handled with these operations; the transfer is made first, and then the customer is told exactly "YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON."
+    via: [transfer_to_human_agents]
+    concern: functional-suitability
+    facet: functional appropriateness
+  P-IDENTITY:
+    rule: the user id is obtained from the customer before booking, changing or cancelling; a reservation id the customer does not know is found from their own profile
+    via: [get_user_details, get_reservation_details]
+    concern: security
+    facet: authenticity
+  P-OWNERSHIP:
+    rule: the agent reads and acts on only the profile and reservations of the user id the customer gave (READING, S-5)
+    via: [get_user_details, get_reservation_details, book_reservation, cancel_reservation, update_reservation_flights, update_reservation_baggages, update_reservation_passengers, send_certificate]
+    concern: security
+    facet: confidentiality
+  P-BOOK:
+    rule: a booking asks for the trip type, origin and destination; one cabin class for every flight and passenger; at most five passengers, each with first name, last name and date of birth
+    via: [book_reservation]
+    concern: functional-suitability
+    facet: functional correctness
+  P-BOOK-PAYMENT:
+    rule: a booking uses at most one travel certificate, one credit card and three gift cards, every one already in the customer's profile; a certificate's remaining balance is not refunded
+    via: [book_reservation]
+    concern: security
+    facet: integrity
+  P-BAGS:
+    rule: "free checked bags per passenger — regular: basic economy 0, economy 1, business 2; silver: 1, 2, 3; gold: 2, 3, 4; each extra bag is 50 dollars; no bag the customer does not need is added; bags may be added and never removed"
+    via: [book_reservation, update_reservation_baggages]
+    concern: functional-suitability
+    facet: functional correctness
+  P-INSURANCE:
+    rule: at booking the customer is asked whether to buy travel insurance, 30 dollars per passenger, which makes a cancellation for health or weather fully refundable; it cannot be added later
+    via: [book_reservation]
+    concern: functional-suitability
+    facet: functional completeness
+  P-CHANGE-FLIGHTS:
+    rule: basic economy flights are never changed; other reservations change flights without changing origin, destination or trip type; a kept segment keeps its price; a flight change is paid or refunded on one gift card or credit card already in the profile
+    via: [update_reservation_flights]
+    concern: functional-suitability
+    facet: functional correctness
+  P-CHANGE-CABIN:
+    rule: the cabin changes for the whole reservation, never one segment, and not once any segment has flown; a higher price is paid and a lower one refunded
+    via: [update_reservation_flights]
+    concern: functional-suitability
+    facet: functional correctness
+  P-PASSENGERS:
+    rule: passenger details may change; the number of passengers may not, not even by a person
+    via: [update_reservation_passengers]
+    concern: functional-suitability
+    facet: functional correctness
+  P-CANCEL:
+    rule: the reason for cancelling is obtained; a reservation with any segment flown is not cancelled by the agent and is transferred; otherwise it is cancelled only if booked within the last 24 hours, a flight was cancelled by the airline, the cabin is business, or it is insured and the reason is covered by the insurance
+    via: [cancel_reservation, transfer_to_human_agents]
+    concern: functional-suitability
+    facet: functional correctness
+  P-REFUND:
+    rule: a cancellation is refunded to the original payment methods within 5 to 7 business days
+    via: [cancel_reservation]
+    concern: functional-suitability
+    facet: functional correctness
+  P-COMPENSATION:
+    rule: compensation is offered only when the customer asks, after the facts are confirmed, and only to a silver or gold member, an insured reservation or a business one — a certificate of 100 dollars per passenger for a cancelled flight, or of 50 dollars per passenger for a delayed flight once the reservation has been changed or cancelled; for nothing else
+    via: [send_certificate]
+    concern: safety
+    facet: operational constraint
+
+# ---------------------------------------------------------------------------
+# 5 · External contracts
+# ---------------------------------------------------------------------------
+external:
+  reservation_system:
+    owns: [user, payment_method, reservation, flight, airport]
+    operations: [get_user_details, get_reservation_details, search_direct_flight, search_onestop_flight, get_flight_status, list_all_airports, book_reservation, cancel_reservation, update_reservation_flights, update_reservation_baggages, update_reservation_passengers, send_certificate]
+    # The policy, twice: "The API does not check these for the agent, so the
+    # agent must make sure the rules apply before calling the API!" The
+    # preconditions above are the agent's to keep, and the system lets a call
+    # that breaks them through. Its own refusals are few: a payment method not
+    # in the profile, a gift card short of the amount, a certificate offered
+    # for a change, a seat count, a passenger count that differs.
+    refusal_is_a_result: >
+      A call the system refuses answers with an error naming why, and changes
+      nothing. A call that breaks a rule of this spec the system does not
+      check is carried out.
+    consistency: every answer is the record as it stands after the call
+    failure_modes: [unknown_record]
+  human_desk:
+    owns: [transfer]
+    operations: [transfer_to_human_agents]
+    receives: [transfer]
+
+# ---------------------------------------------------------------------------
+# 6 · Required properties — the policy states none.
+# ---------------------------------------------------------------------------
+required:
+  properties: []
+  undeclared:
+    - latency
+    - cost
+    - availability
+    - data residency
+    - retention
+
+# ---------------------------------------------------------------------------
+# 7 · Conformance — none claimed. This spec describes an agent its author did
+# not build, for assessing it; the catalogs' obligations are its builder's.
+# ---------------------------------------------------------------------------
+conformance:
+  archetypes: [A5]
+  aac:
+    version: "0.16"
+    claims: none claimed; written to assess an agent built by others, from its published policy
