@@ -1,0 +1,34 @@
+# The world the airline agent is assessed in: τ²-bench's own airline database,
+# described in the terms of the AOAS this world cites.
+#
+# No rows here. They are τ²'s db.json at the pinned commit, converted by
+# tau2_airline/convert.py and added with agenttwin.with_records, which checks
+# them as it checks a world file's rows (enums, invariants, joins) — 2,000
+# reservations, 500 users, their payment methods, 9,000 flight-dates and 20
+# airports. Committing 12,000 generated rows would be a copy of τ²'s data
+# that could drift from it; the converter is deterministic instead.
+apiVersion: awd/v0
+name: tau2-airline
+seed: 0
+spec: {aoas: tau2-airline, version: 0.1.0, path: tau2-airline.aoas.yaml}
+fidelity:
+  faithful_about:
+    - every booking-record effect of the twelve declared operations, because the stand-in runs τ²'s own tool code against τ²'s own database
+    - reservation status, cabin, bags, insurance, passengers and payments, and each flight-date's status
+  not_faithful_about:
+    - "seats: τ² does not release seats on cancellation or take them on a flight change, and neither does this world"
+    - "time: the clock is the policy's fixed 2024-05-15 15:00 EST; nothing ages during a conversation"
+    - the customer's reason for cancelling, and whether they asked for compensation, which no record holds
+  # Each offline trajectory's answers are compared with τ²'s own environment
+  # answering the same calls; the README reports the result.
+  verified_against: null
+systems:
+  # `real`: the stand-in's behaviour is τ²'s own tool code, which is the
+  # system of record of this benchmark. AgentTwin holds the view of it the
+  # spec describes, and judges by that view.
+  reservations:
+    projects: reservation_system
+    resolution: real
+  desk:
+    projects: human_desk
+    resolution: mock

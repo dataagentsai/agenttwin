@@ -131,6 +131,7 @@ entities:
       total_baggages: {type: int}
       nonfree_baggages: {type: int}
       passenger_count: {type: int, derived: "the passengers listed on the reservation"}
+      net_paid: {type: money, derived: "the sum of the reservation's payments, a refund counting as negative"}
       hours_since_booking:
         type: int
         derived: "whole hours from created_at to the policy's current time, 2024-05-15 15:00 EST"
