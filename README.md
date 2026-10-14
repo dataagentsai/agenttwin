@@ -1,5 +1,7 @@
 # AgentTwin
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23366041.svg)](https://doi.org/10.5281/zenodo.23366041)
+
 AgentTwin tests an AI agent by placing the real agent in a simulated world (its
 customers, the systems it calls, their data and their faults) and then checking
 what actually changed in that world, not only what the agent said.
@@ -89,7 +91,7 @@ test AI agents:
 | [Reference Agent](https://github.com/dataagentsai/reference-agent) | the reference implementation: one agent built and tested to all of the above |
 | [AgentTwin Lab](https://github.com/dataagentsai/agenttwin-lab) | the lab: a world that keeps running for days, for testing long-running agents |
 
-**How to cite:** cite the release you used. Metadata is in
+**How to cite:** DOI [10.5281/zenodo.23366041](https://doi.org/10.5281/zenodo.23366041) (all versions; Zenodo also gives each release its own). cite the release you used. Metadata is in
 [CITATION.cff](CITATION.cff); GitHub's "Cite this repository" button renders it
 as APA or BibTeX.
 
