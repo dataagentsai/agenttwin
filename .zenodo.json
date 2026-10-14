@@ -1,0 +1,21 @@
+{
+  "title": "AgentTwin: a world-description format and simulator for testing AI agents",
+  "upload_type": "software",
+  "description": "AgentTwin twins the agent's world, not the agent. The agent under test is real; its environment (entities, systems, actors, timeline and injected faults) is simulated with fidelity sufficient for the property under test. It states what an agent must face, alongside the AI Assurance Catalog (what must be true) and the AI Harness Catalog (what must exist). Part of Clean AI Engineering.",
+  "creators": [
+    {
+      "affiliation": "DataAgents.ai",
+      "name": "Choudhary, Basant"
+    }
+  ],
+  "keywords": [
+    "AI agents",
+    "simulation",
+    "agent evaluation",
+    "long-running agents",
+    "fault injection",
+    "digital twin"
+  ],
+  "license": "Apache-2.0",
+  "notes": "Code under Apache-2.0 (LICENSE); specification text under CC-BY-4.0 (LICENSE-SPEC.txt)."
+}
