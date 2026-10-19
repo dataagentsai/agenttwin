@@ -33,6 +33,9 @@ from __future__ import annotations
 
 import os
 import re
+import re._constants as _sre  # the stdlib's own regex parser: no new dependency
+import re._parser as _parser
+import string
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -89,25 +92,168 @@ def _prefix(entity: str) -> str:
     return (letters + entity[1].upper()) if len(letters) == 1 else letters
 
 
-_LITERAL = re.compile(r"^([A-Z][A-Z0-9]*)-")
-_DIGITS = re.compile(r"\[0-9\]\{(\d+)")
+class KeyPatternError(ValueError):
+    """No key the field's pattern allows could be made; the message is one line."""
+
+
+# The characters a key may be built from, in the order a class offers them.
+_CHARS = string.digits + string.ascii_uppercase + string.ascii_lowercase + "-_.:/#@+"
+
+
+@dataclass
+class _Run:
+    """One stretch of the key the scaffold may vary: a character class repeated
+    `low` to `high` times (`high` None when unbounded)."""
+
+    chars: str
+    low: int
+    high: int | None
+    text: str = ""
+
+
+def _class_chars(op, arg) -> str:
+    """The key characters a single-character node of the parsed pattern accepts."""
+    if op is _sre.LITERAL:
+        return chr(arg)
+    if op is _sre.NOT_LITERAL:
+        return "".join(c for c in _CHARS if ord(c) != arg)
+    if op is _sre.ANY:
+        return _CHARS
+    if op is _sre.IN:
+        negate = bool(arg) and arg[0][0] is _sre.NEGATE
+        items = arg[1:] if negate else arg
+
+        def accepts(c: str) -> bool:
+            for kind, val in items:
+                if kind is _sre.LITERAL and ord(c) == val:
+                    return True
+                if kind is _sre.RANGE and val[0] <= ord(c) <= val[1]:
+                    return True
+                if kind is _sre.CATEGORY and re.fullmatch(_CATEGORIES.get(val, r"(?!)"), c):
+                    return True
+            return False
+
+        return "".join(c for c in _CHARS if accepts(c) != negate)
+    raise KeyPatternError(f"unsupported construct {op}")
+
+
+_CATEGORIES = {
+    _sre.CATEGORY_DIGIT: r"\d",
+    _sre.CATEGORY_NOT_DIGIT: r"\D",
+    _sre.CATEGORY_WORD: r"\w",
+    _sre.CATEGORY_NOT_WORD: r"\W",
+    _sre.CATEGORY_SPACE: r"\s",
+    _sre.CATEGORY_NOT_SPACE: r"\S",
+}
+_SINGLE = (_sre.LITERAL, _sre.NOT_LITERAL, _sre.ANY, _sre.IN)
+_REPEATS = (_sre.MAX_REPEAT, _sre.MIN_REPEAT, getattr(_sre, "POSSESSIVE_REPEAT", _sre.MAX_REPEAT))
+
+
+def _walk(tree, parts: list) -> None:
+    """Flatten the parsed pattern into literal text and variable runs."""
+    for op, arg in tree:
+        if op is _sre.LITERAL:
+            parts.append(chr(arg))
+        elif op in _SINGLE:
+            parts.append(_Run(_class_chars(op, arg), 1, 1))
+        elif op in _REPEATS:
+            low, high, sub = arg
+            high = None if high is _sre.MAXREPEAT else high
+            if len(sub) == 1 and sub[0][0] in _SINGLE:
+                parts.append(_Run(_class_chars(*sub[0]), low, high))
+            else:
+                for _ in range(low):
+                    _walk(sub, parts)
+        elif op is _sre.SUBPATTERN:
+            _walk(arg[-1], parts)
+        elif op is getattr(_sre, "ATOMIC_GROUP", None):
+            _walk(arg, parts)
+        elif op is _sre.BRANCH:
+            _walk(arg[1][0], parts)  # the first alternative, every time
+        elif op is _sre.AT:
+            continue  # anchors and boundaries take no characters; the final match checks them
+        else:
+            raise KeyPatternError(f"unsupported construct {op}")
+
+
+def _from_pattern(prefix: str, n: int, pattern: str) -> str:
+    """The key for row `n`: `pattern`'s literal text, with `n` counted into its
+    variable runs right to left — digit runs first, in decimal, so the row
+    number reads as itself; then any other run, in its own characters. A run
+    `n` does not reach spells the scaffold's prefix when its class allows it,
+    else repeats its first character as few times as the pattern allows."""
+    parts: list = []
+    _walk(_parser.parse(pattern), parts)
+    runs = [p for p in parts if isinstance(p, _Run)]
+    if any(not r.chars for r in runs):
+        raise KeyPatternError("a character class accepts no character a key can hold")
+    carry = n
+    digit_runs = [r for r in runs if set(string.digits) <= set(r.chars)]
+    other_runs = [r for r in runs if r not in digit_runs and len(r.chars) > 1]
+    for alphabet, group in ((string.digits, digit_runs), (None, other_runs)):
+        for i, run in enumerate(reversed(group)):
+            chars = alphabet or run.chars
+            if carry == 0 and (alphabet is None or i > 0):
+                break  # the rightmost digit run always shows the number, even 0
+            width = run.high
+            if width == 0:
+                continue
+            value = carry if width is None else carry % len(chars) ** width
+            carry = 0 if width is None else carry // len(chars) ** width
+            text = ""
+            while value:
+                value, digit = divmod(value, len(chars))
+                text = chars[digit] + text
+            run.text = text.rjust(max(run.low, 1 if alphabet else 0), chars[0])
+    for run in runs:
+        if run.text:
+            continue
+        for word in (prefix, prefix.lower()):
+            if word and all(c in run.chars for c in word):
+                size = max(run.low, min(len(word), run.high if run.high is not None else len(word)))
+                run.text = word[:size].ljust(size, run.chars[0])
+                break
+        else:
+            run.text = run.chars[0] * run.low
+    return "".join(p.text if isinstance(p, _Run) else p for p in parts)
 
 
 def _key(prefix: str, n: int, pattern: str | None) -> str:
-    """A key for row `n`, shaped like the field's declared `pattern` (T-099).
+    """A key for row `n`, shaped like the field's declared `pattern` (T-099, T-122).
 
-    The common shape is a literal prefix and a run of digits — `POL-[0-9]{6}`
-    gives `POL-010001`. A pattern that starts with a character class keeps the
-    scaffold's own prefix. Whatever comes out must match the pattern in full,
-    or the scaffold stops: a world whose ids no customer could type tests a
-    recogniser that will never see them.
+    With no pattern it is the scaffold's prefix and the row number, `OR-10001`.
+    With one, the key is generated from the pattern itself: `POL-[0-9]{6}` gives
+    `POL-010001`, `[A-Z]{1,3}-[0-9]{3,8}` keeps the scaffold's prefix as `OR-10001`,
+    `[a-z]+_[a-z]+_[0-9]{4}` gives `us_us_1001`. Whatever comes out must match
+    the pattern in full, or the scaffold stops: a world whose ids no customer
+    could type tests a recogniser that will never see them.
     """
-    literal = _LITERAL.match(pattern or "")
-    digits = _DIGITS.search(pattern or "")
-    key = f"{literal.group(1) if literal else prefix}-{n:0{int(digits.group(1)) if digits else 1}d}"
-    if pattern and not re.fullmatch(pattern, key):
-        raise ValueError(f"cannot make a key matching {pattern!r} (tried {key!r}); give the field a simpler pattern")
+    if not pattern:
+        return f"{prefix}-{n}"
+    try:
+        key = _from_pattern(prefix, n, pattern)
+    except (KeyPatternError, re.error) as e:
+        raise KeyPatternError(f"cannot make a key matching {pattern!r}: {e}") from None
+    if not re.fullmatch(pattern, key):
+        raise KeyPatternError(f"cannot make a key matching {pattern!r} (tried {key!r})")
     return key
+
+
+def _keys(entity_name: str, entity: Entity, numbers: list[int], prefix: str) -> list[str]:
+    """One distinct key per row number, or a one-line `KeyPatternError` naming
+    the entity, its key field and the pattern."""
+    pattern = entity.fields[entity.key].pattern
+    where = f"{entity_name}.{entity.key}"
+    try:
+        made = [_key(prefix, n, pattern) for n in numbers]
+    except KeyPatternError as e:
+        raise KeyPatternError(f"{where}: {e}; give the field a simpler pattern") from None
+    if len(set(made)) < len(made):
+        raise KeyPatternError(
+            f"{where}: pattern {pattern!r} allows too few keys for {len(made)} distinct rows"
+            f" (made {made}); give the field a pattern with a varying part"
+        )
+    return made
 
 
 def _default(name: str, spec, n: int) -> Any:
@@ -177,13 +323,12 @@ def _records(
     # The customer first: everything else refers to them.
     ce = world.entities[customer_entity]
     people = []
-    for who in (
-        "the customer every scenario acts as",
-        "a stranger, whose rows nobody else may see",
-    ):
-        n = next(counter)
+    whos = ("the customer every scenario acts as", "a stranger, whose rows nobody else may see")
+    numbers = [next(counter) for _ in whos]
+    made = _keys(customer_entity, ce, [1000 + n for n in numbers], _prefix(customer_entity))
+    for who, n, key in zip(whos, numbers, made, strict=True):
         row = {f: _default(f, s, n) for f, s in ce.fields.items()}
-        row[ce.key] = _key(_prefix(customer_entity), 1000 + n, ce.fields[ce.key].pattern)
+        row[ce.key] = key
         people.append(Row(row, [who]))
     records[customer_entity] = people
     keys[customer_entity] = [r.values[ce.key] for r in people]
@@ -223,16 +368,19 @@ def _records(
             seen[fingerprint] = Row(dict(values), [why])
             rows.append(seen[fingerprint])
         # Keys and references, once the set is final.
-        for i, row in enumerate(rows):
-            row.values[entity.key] = _key(_prefix(name), 10001 + i, entity.fields[entity.key].pattern)
+        refs_customer = [f for f, t in entity.refs().items() if t.startswith(f"{customer_entity}.")]
+        theirs_too = bool(rows and refs_customer)
+        numbers = [10001 + i for i in range(len(rows))] + ([19001] if theirs_too else [])
+        made = _keys(name, entity, numbers, _prefix(name))
+        for row, key in zip(rows, made, strict=False):
+            row.values[entity.key] = key
             for f, target in entity.refs().items():
                 other = target.partition(".")[0]
                 row.values[f] = (keys.get(other) or [""])[0]
         # The stranger owns one copy of the first row, so ownership has a target.
-        refs_customer = [f for f, t in entity.refs().items() if t.startswith(f"{customer_entity}.")]
-        if rows and refs_customer:
+        if theirs_too:
             theirs = dict(rows[0].values)
-            theirs[entity.key] = _key(_prefix(name), 19001, entity.fields[entity.key].pattern)
+            theirs[entity.key] = made[-1]
             for f in refs_customer:
                 theirs[f] = keys[customer_entity][1]
             rows.append(Row(theirs, ["the stranger's — the customer may not see or touch it"]))

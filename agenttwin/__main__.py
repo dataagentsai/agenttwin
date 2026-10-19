@@ -83,11 +83,15 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _scaffold(args: argparse.Namespace) -> int:
-    from agenttwin.scaffold import scaffold
+    from agenttwin.scaffold import KeyPatternError, scaffold
 
     if args.pairwise:
         return _pairwise(args)
-    written = scaffold(Path(args.aoas), Path(args.out), force=args.force)
+    try:
+        written = scaffold(Path(args.aoas), Path(args.out), force=args.force)
+    except KeyPatternError as e:
+        print(f"scaffold: {e}", file=sys.stderr)
+        return 2
     for path in written:
         print(f"  wrote {path}")
     if not written:
