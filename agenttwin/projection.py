@@ -29,7 +29,7 @@ from __future__ import annotations
 import copy
 import inspect
 import re
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -221,7 +221,7 @@ class UnknownRecord(Exception):
 def project(
     live: Live,
     *,
-    name: str | None = None,
+    name: str | Sequence[str] | None = None,
     wrap=None,
     scopes: Mapping[str, str] | None = None,
     authorise: Authorise | None = None,
@@ -253,6 +253,11 @@ def project(
     system `projects`, which is the only name an agent built from the AOAS can
     know: generation run 2 named `order_system` and met a world whose stand-in
     for it is keyed `ecom`.
+
+    `name` may also be several names: one server then serves every named
+    system's operations, as one integration layer in front of several systems
+    would. An operation name two of them share is refused by the server, not
+    silently shadowed.
 
     `unknown_record="result"` is the recommended mode: it lets a caller tell
     "no such record" (the AOAS failure mode `unknown_record`) from the server
@@ -297,16 +302,35 @@ def project(
         _require_async("authorise", authorise)
     if unknown_record not in ("raise", "result"):
         raise ValueError(f"unknown_record must be 'raise' or 'result', not {unknown_record!r}")
-    system = _system(live, name)
-    name = name or next(iter(live.world.systems))
-    srv = MCPServer(name)
+    # Several names: one server serving all of them, as an integration layer in
+    # front of several systems does (AG-201: a hotel-PMS server in front of
+    # reservations, published information and the front desk). An agent whose
+    # tool port opens one server cannot otherwise reach a world of several.
+    names = [name] if name is None or isinstance(name, str) else list(name)
+    srv = MCPServer(names[0] if len(names) == 1 and names[0] else next(iter(live.world.systems)))
 
     required = dict(scopes or {})
     guarded = _checked(authorise) if authorise is not None else None
-    for action_name, action in system.actions.items():
-        _register(
-            srv, live, action_name, action, wrap, required.get(action_name), guarded, unknown_record
-        )
+    served: dict[str, str | None] = {}
+    for one in names:
+        system = _system(live, one)
+        for action_name, action in system.actions.items():
+            if action_name in served:
+                raise ValueError(
+                    f"{action_name!r} is served by both {served[action_name]!r} and {one!r}; "
+                    "project them separately"
+                )
+            served[action_name] = one
+            _register(
+                srv,
+                live,
+                action_name,
+                action,
+                wrap,
+                required.get(action_name),
+                guarded,
+                unknown_record,
+            )
 
     return srv
 
