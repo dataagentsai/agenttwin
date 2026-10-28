@@ -254,6 +254,19 @@ def voice_for(upstream: Upstream) -> Voice:
     async def speak(brief: str, heard: str) -> str:
         opening = "Open the conversation — say what you want, in your own words."
         async with httpx2.AsyncClient(timeout=upstream.timeout_s) as client:
+            if upstream.wire == "anthropic":
+                said = await client.post(
+                    f"{upstream.base_url.rstrip('/')}/v1/messages",
+                    json={
+                        "model": upstream.model,
+                        "max_tokens": 2048,
+                        "system": brief,
+                        "messages": [{"role": "user", "content": heard or opening}],
+                    },
+                    headers={"x-api-key": upstream.api_key, "anthropic-version": "2023-06-01"},
+                )
+                said.raise_for_status()
+                return "".join(b["text"] for b in said.json()["content"] if b["type"] == "text")
             answer = await client.post(
                 f"{upstream.base_url.rstrip('/')}/chat/completions",
                 json={

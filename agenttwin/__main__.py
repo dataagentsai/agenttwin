@@ -39,7 +39,9 @@ def _run(args: argparse.Namespace) -> int:
         if not (args.upstream and args.model and key):
             print("--live needs --upstream, --model and a key in --api-key-env", file=sys.stderr)
             return 2
-        upstream = Upstream(base_url=args.upstream, api_key=key, model=args.model)
+        upstream = Upstream(
+            base_url=args.upstream, api_key=key, model=args.model, wire=args.upstream_wire
+        )
         voice = voice_for(upstream)
 
     paths = scenario_paths(args.scenarios)
@@ -147,9 +149,18 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--binding", required=True, help="module:attribute of the binding")
     run.add_argument("--out", help="write the full result as JSON here")
     run.add_argument("--live", action="store_true", help="a real model answers")
-    run.add_argument("--upstream", help="live: the provider's OpenAI-compatible base URL")
+    run.add_argument(
+        "--upstream",
+        help="live: the provider's base URL (see --upstream-wire)",
+    )
     run.add_argument("--model", help="live: the model name the provider serves")
     run.add_argument("--api-key-env", default="AGENTTWIN_API_KEY")
+    run.add_argument(
+        "--upstream-wire",
+        choices=["openai", "anthropic"],
+        default="openai",
+        help="live: the upstream's wire; anthropic posts to <upstream>/v1/messages",
+    )
     run.add_argument("--repeat", type=int, default=1, help="runs per scenario (pass rates)")
     run.add_argument("-q", "--quiet", action="store_true")
     run.set_defaults(func=_run)
