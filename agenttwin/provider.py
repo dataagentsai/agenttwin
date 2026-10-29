@@ -25,6 +25,13 @@ wrong; the implementation's own adapter decides what that becomes.
                             faults=provider_faults(scenario), clock=clock) as twin:
         ...  # hand twin.endpoint to the binding
 
+Two wires, one script. The same scenario answers on the OpenAI-compatible
+`/v1/chat/completions` and on Anthropic's `/v1/messages`, each in its own shape:
+tool calls become `tool_calls` there and `tool_use` blocks here; a throttle is a
+429 on both, an outage a 503 there and a 529 (`overloaded_error`) here; malformed
+output is no choice there and no content block here. An agent on the Anthropic
+SDK points its client at `endpoint.anthropic_base_url`.
+
 Streaming is refused (400): nothing in the family streams yet (AAC-0092 is
 excluded in every AOAS so far), and a twin that half-implemented it would be
 worse than one that says so.
@@ -61,6 +68,11 @@ class ModelEndpoint:
     api_key: str = "agenttwin"
     model: str = SCRIPTED_MODEL
 
+    @property
+    def anthropic_base_url(self) -> str:
+        """The same twin for a client that appends `/v1/messages` itself (Anthropic's SDK)."""
+        return self.base_url.removesuffix("/v1")
+
 
 @dataclass(frozen=True)
 class Upstream:
@@ -70,6 +82,10 @@ class Upstream:
     api_key: str
     model: str
     timeout_s: float = 120.0
+    wire: str = "openai"
+    """`openai` (chat completions under `base_url`) or `anthropic` (`/v1/messages`
+    under `base_url`, e.g. https://api.anthropic.com). Calls arriving on the other
+    wire are refused: the twin does not translate between providers."""
 
 
 @dataclass
@@ -113,6 +129,7 @@ class ProviderTwin:
             routes=[
                 Route("/v1/chat/completions", self._complete, methods=["POST"]),
                 Route("/chat/completions", self._complete, methods=["POST"]),
+                Route("/v1/messages", self._messages, methods=["POST"]),
                 Route("/v1/models", self._models, methods=["GET"]),
             ]
         )
@@ -144,20 +161,35 @@ class ProviderTwin:
         return JSONResponse({"object": "list", "data": [{"id": name, "object": "model"}]})
 
     async def _complete(self, request: Request) -> Response:
+        return await self._serve(request, "openai")
+
+    async def _messages(self, request: Request) -> Response:
+        return await self._serve(request, "anthropic")
+
+    async def _serve(self, request: Request, wire: str) -> Response:
         body = await request.json()
         self.calls += 1
         self.requests.append(body)
         if body.get("stream"):
-            return _error(400, "the provider twin does not stream", "invalid_request_error")
+            return _error(
+                400, "the provider twin does not stream", "invalid_request_error", wire=wire
+            )
 
-        fault = self._fault_now()
+        fault = self._fault_now(wire)
         if fault is not None:
             return fault
         if self.upstream is not None:
-            return await self._forward(body)
-        return self._scripted(body)
+            if self.upstream.wire != wire:
+                return _error(
+                    400,
+                    f"the upstream speaks {self.upstream.wire}, this call came on {wire}",
+                    "invalid_request_error",
+                    wire=wire,
+                )
+            return await self._forward(body, request.headers)
+        return self._scripted(body, wire)
 
-    def _fault_now(self) -> Response | None:
+    def _fault_now(self, wire: str = "openai") -> Response | None:
         """The declared fault on this call, or the outage one started, if any.
 
         A faulted call consumes no scripted answer: the answer is still owed
@@ -176,16 +208,32 @@ class ProviderTwin:
             return None
         if kind == "provider_throttled":
             headers = {"retry-after": str(retry_after)} if retry_after is not None else {}
-            return _error(429, "rate limited (injected)", "rate_limit_exceeded", headers)
+            return _error(429, "rate limited (injected)", "rate_limit_exceeded", headers, wire=wire)
         if kind == "provider_unavailable":
+            if wire == "anthropic":
+                return _error(
+                    529, "the provider is overloaded (injected)", "overloaded_error", wire=wire
+                )
             return _error(503, "the provider could not be reached (injected)", "unavailable")
         # Malformed: well-formed JSON with nothing an adapter can use in it. A
         # body that is not JSON at all tests the HTTP library, not the agent.
+        if wire == "anthropic":
+            return JSONResponse(
+                {
+                    "id": f"msg_agenttwin_{self.calls}",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": SCRIPTED_MODEL,
+                    "content": [],
+                    "stop_reason": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                }
+            )
         return JSONResponse(
             {"id": f"agenttwin-{self.calls}", "object": "chat.completion", "choices": []}
         )
 
-    def _scripted(self, body: dict[str, Any]) -> Response:
+    def _scripted(self, body: dict[str, Any], wire: str = "openai") -> Response:
         if self.answered >= len(self.script):
             self.overran += 1
             return _error(
@@ -193,22 +241,33 @@ class ProviderTwin:
                 f"agenttwin: the scenario scripted {len(self.script)} model answer(s) "
                 f"and this is call {self.calls}",
                 "script_exhausted",
+                wire=wire,
             )
         turn = self.script[self.answered]
         self.answered += 1
-        return JSONResponse(completion(turn, n=self.calls, model=body.get("model", "")))
+        shape = message if wire == "anthropic" else completion
+        return JSONResponse(shape(turn, n=self.calls, model=body.get("model", "")))
 
-    async def _forward(self, body: dict[str, Any]) -> Response:
+    async def _forward(self, body: dict[str, Any], incoming: Any = None) -> Response:
         import httpx2
 
         assert self.upstream is not None
         sent = {**body, "model": self.upstream.model}
+        base = self.upstream.base_url.rstrip("/")
+        if self.upstream.wire == "anthropic":
+            url = f"{base}/v1/messages"
+            headers = {
+                "x-api-key": self.upstream.api_key,
+                "anthropic-version": (incoming or {}).get("anthropic-version", "2023-06-01"),
+            }
+            beta = (incoming or {}).get("anthropic-beta")
+            if beta:
+                headers["anthropic-beta"] = beta
+        else:
+            url = f"{base}/chat/completions"
+            headers = {"authorization": f"Bearer {self.upstream.api_key}"}
         async with httpx2.AsyncClient(timeout=self.upstream.timeout_s) as client:
-            answer = await client.post(
-                f"{self.upstream.base_url.rstrip('/')}/chat/completions",
-                json=sent,
-                headers={"authorization": f"Bearer {self.upstream.api_key}"},
-            )
+            answer = await client.post(url, json=sent, headers=headers)
         self.answered += 1
         passed = {k: v for k, v in answer.headers.items() if k.lower() == "retry-after"}
         return Response(
@@ -250,7 +309,44 @@ def completion(turn: ModelTurnFile, *, n: int, model: str) -> dict[str, Any]:
     }
 
 
-def _error(status: int, message: str, kind: str, headers: dict[str, str] | None = None) -> Response:
+def message(turn: ModelTurnFile, *, n: int, model: str) -> dict[str, Any]:
+    """One scripted answer as an Anthropic Messages response body.
+
+    No thinking block: a scripted turn has no reasoning to preserve, and an
+    adapter must accept a turn without one."""
+    content: list[dict[str, Any]] = []
+    if turn.says:
+        content.append({"type": "text", "text": turn.says})
+    content += [
+        {"type": "tool_use", "id": f"toolu_{n}_{i}", "name": name, "input": arguments}
+        for i, call in enumerate(turn.calls, start=1)
+        for name, arguments in call.items()
+    ]
+    return {
+        "id": f"msg_agenttwin_{n}",
+        "type": "message",
+        "role": "assistant",
+        "model": model or SCRIPTED_MODEL,
+        "content": content,
+        "stop_reason": "tool_use" if turn.calls else "end_turn",
+        "stop_sequence": None,
+        # Nominal and fixed, as in `completion`.
+        "usage": {"input_tokens": 5, "output_tokens": 2},
+    }
+
+
+def _error(
+    status: int,
+    message: str,
+    kind: str,
+    headers: dict[str, str] | None = None,
+    *,
+    wire: str = "openai",
+) -> Response:
+    if wire == "anthropic":
+        kinds = {"rate_limit_exceeded": "rate_limit_error"}
+        body = {"type": "error", "error": {"type": kinds.get(kind, kind), "message": message}}
+        return JSONResponse(body, status_code=status, headers=headers)
     return JSONResponse(
         {"error": {"message": message, "type": kind, "code": kind}},
         status_code=status,
@@ -258,4 +354,4 @@ def _error(status: int, message: str, kind: str, headers: dict[str, str] | None 
     )
 
 
-__all__ = ["SCRIPTED_MODEL", "ModelEndpoint", "ProviderTwin", "Upstream", "completion"]
+__all__ = ["SCRIPTED_MODEL", "ModelEndpoint", "ProviderTwin", "Upstream", "completion", "message"]

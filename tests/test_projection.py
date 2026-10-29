@@ -350,3 +350,44 @@ async def test_registering_a_claim_takes_only_declared_values(
         return
     row = live.rows["claim"][result.structured_content["created"]["id"]]
     assert {f: row[f] for f in fields} == fields
+
+
+# ---- several systems, one server (AG-201: a hotel-PMS server in front of three) ----
+
+
+def _hotel_world():
+    from pathlib import Path
+
+    from agenttwin.loader import load
+
+    path = Path.home() / "hotel-concierge-agent" / "worlds" / "hotel-concierge.yaml"
+    if not path.exists():
+        pytest.skip("the hotel world is not checked out beside agenttwin")
+    return load(path)
+
+
+# [names given, tools expected on the one server, error or None]
+SEVERAL = [
+    (("hotel_information",), {"get_hotel_info"}, None),
+    (
+        ("reservation_system", "hotel_information", "front_desk_queue"),
+        {"get_reservation", "cancel_reservation", "change_dates", "request_refund",
+         "issue_refund", "get_hotel_info", "request_service"},
+        None,
+    ),
+    (("hotel_information", "hotel_information"), None, "served by both"),
+]
+
+
+@pytest.mark.parametrize("names,tools,error", SEVERAL, ids=[" + ".join(s[0]) for s in SEVERAL])
+async def test_several_systems_serve_from_one_server(names, tools, error) -> None:
+    from agenttwin.projection import Live, project
+
+    live = Live.start(_hotel_world())
+    if error is not None:
+        with pytest.raises(ValueError, match=error):
+            project(live, name=names)
+        return
+    server = project(live, name=names)
+    listed = {t.name for t in await server.list_tools()}
+    assert listed == tools
