@@ -8,7 +8,7 @@ AgentTwin is an open-source tool that tests an AI agent by placing the real agen
 customers, the systems it calls, their data and their faults) and then checking
 what actually changed in that world, not only what the agent said.
 
-**Status: version 0.13.0, released 13 October 2026, a working draft.**
+**Status: version 0.14.0, released 29 October 2026, a working draft.**
 
 - **Done:** the world format, AWD (Agent World Description: [SPEC.md](SPEC.md),
   [schema/](schema/)). Also done: the loader, and the simulator that presents a
@@ -26,9 +26,11 @@ what actually changed in that world, not only what the agent said.
   judged by state, and every result says whether it was model-driven. 0.13.0
   types each tool input by the field it is written into, so an enum input
   takes only its values, and fills a created row's untouched fields with their
-  type's empty value (T-113, found by 0.10.0's own property tests). The suite
-  has 397 passing tests, and 14 more for the model-played customer where the
-  `langwatch` extra is installed.
+  type's empty value (T-113, found by 0.10.0's own property tests). 0.14.0
+  lets the provider twin answer in Anthropic's Messages API as well as the
+  OpenAI-compatible one, and lets one projection serve several systems from one
+  server. The suite has 433 passing tests; 19 more are skipped unless optional
+  extras (such as `langwatch`) are installed.
 - **Planned:** most of the outside tools AgentTwin intends to adopt rather than
   build. Of those listed in [ADOPTION.md](ADOPTION.md), only **Hypothesis**
   (generated edge-case values), **pytest** (the test runner), **allpairspy**
@@ -67,7 +69,7 @@ what actually changed in that world, not only what the agent said.
 
 ```bash
 git clone https://github.com/dataagentsai/agenttwin && cd agenttwin
-uv run --extra dev pytest      # the format and simulator's own suite, about 10 seconds
+uv run --extra dev pytest      # the format and simulator's own suite, about a minute
 ```
 
 The model-played customer's own tests need its extra, which is kept out of
