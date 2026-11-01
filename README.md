@@ -2,7 +2,9 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23366041.svg)](https://doi.org/10.5281/zenodo.23366041)
 
-AgentTwin tests an AI agent by placing the real agent in a simulated world (its
+Open source (Apache 2.0) · Website: [cleandataengineering.ai/learn/agenttwin](https://cleandataengineering.ai/learn/agenttwin/) · Part of [Clean Data Engineering](https://cleandataengineering.ai/)
+
+AgentTwin is an open-source tool that tests an AI agent by placing the real agent in a simulated world (its
 customers, the systems it calls, their data and their faults) and then checking
 what actually changed in that world, not only what the agent said.
 
